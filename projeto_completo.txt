@@ -1,0 +1,1031 @@
+ 
+======================================= 
+===== app.cpp 
+======================================= 
+ 
+
+//app.cpp
+#pragma execution_character_set("utf-8")
+#include "app.h"
+#include "ui_constants.h"
+#include <math.h>
+#include <wchar.h>
+#include <stdio.h>
+#include "globals.h"
+
+std::wstring AddEntidade(int tipo, float xPerc, float yPerc) {
+    auto& a = app; // apelido para AppState
+
+    Entidade e;
+    e.xPerc = xPerc;
+    e.yPerc = yPerc;
+    e.wPerc = 10.0f;
+    e.hPerc = 5.0f;
+    e.tipo  = tipo;
+
+    swprintf_s(e.texto, 128, L"%c", L'A' + (int)a.entidades.size());
+    a.entidades.push_back(e);
+
+    return L"";
+}
+
+int UpdateAlpha() {
+    auto& r = render; // apelido para RenderState
+
+    r.contadorTimer++;
+    if (r.contadorTimer >= 12) {
+        r.contadorTimer = 0;
+        r.indiceAlpha++;
+        if (r.indiceAlpha >= 5) {
+            r.indiceAlpha = 0;
+        }
+    }
+    return r.niveisAlpha[r.indiceAlpha];
+}
+
+void CopiarCodigoClipboard(const std::vector<Entidade>& entidades) {
+    auto& a = app; // apelido para AppState
+
+    wchar_t buffer[4096] = {};
+    swprintf_s(buffer, 4096,
+               L"please code in %s pra sempre pegar ScreenRes\r\ne sempre use %% da tela to preserve layout\r\n\r\n",
+               linguagens[a.linguagemSelecionada]);
+
+    for (size_t i = 0; i < entidades.size(); i++) {
+        const auto& e = entidades[i];
+        wchar_t linha[512];
+        wchar_t letra = L'A' + (wchar_t)i;
+
+        swprintf_s(linha, 512,
+                   L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%\r\n",
+                   letra, tiposDescritivos[e.tipo],
+                   e.xPerc, e.yPerc, e.wPerc, e.hPerc);
+
+        wcscat_s(buffer, linha);
+    }
+
+    if (OpenClipboard(NULL)) {
+        EmptyClipboard();
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (wcslen(buffer) + 1) * sizeof(wchar_t));
+        LPWSTR pMem  = (LPWSTR)GlobalLock(hMem);
+        wcscpy_s(pMem, wcslen(buffer) + 1, buffer);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+        CloseClipboard();
+        MessageBoxW(app.hwnd, L"Pronto. Cole ele aonde quiser!", L"Intuitio", MB_OK | MB_ICONINFORMATION);
+    }
+}
+ 
+======================================= 
+===== gdi.cpp 
+======================================= 
+ 
+
+//gdi.cpp
+#include "gdi.h"
+#include "app.h"
+#include "globals.h"
+
+void CreateGDIResources() {
+    auto& g = gdi;     // apelido para GDIState
+    auto& l = layout;  // apelido para LayoutState
+
+    g.hFontTitle    = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, L"Arial");
+    g.hFontGrid     = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
+    g.hFontBtn      = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
+    g.hFontMsg      = CreateFontW(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
+    g.hFontInfoMsg  = CreateFontW(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
+    g.hFontAutor    = CreateFontW(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
+
+    g.hGridBrush    = CreateSolidBrush(RGB(0, 80, 0));
+    g.hExitBrush    = CreateSolidBrush(RGB(150, 0, 0));
+    g.hVoltarBrush  = CreateSolidBrush(RGB(0, 100, 200));
+    g.hAvancarBrush = CreateSolidBrush(RGB(0, 150, 0));
+    g.hReguaBrush   = CreateSolidBrush(RGB(90, 90, 90));
+
+    int fontSizePulse = -(int)(l.A * 0.03f);
+    g.hFontPulse = CreateFontW(fontSizePulse, 0, 0, 0, FW_BOLD,
+                               FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                               DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                               L"Segoe UI");
+}
+
+void DestroyGDIResources() {
+    auto& g = gdi;
+
+    DeleteObject(g.hFontTitle);
+    DeleteObject(g.hFontGrid);
+    DeleteObject(g.hFontBtn);
+    DeleteObject(g.hFontMsg);
+    DeleteObject(g.hFontInfoMsg);
+    DeleteObject(g.hFontAutor);
+    DeleteObject(g.hGridBrush);
+    DeleteObject(g.hExitBrush);
+    DeleteObject(g.hVoltarBrush);
+    DeleteObject(g.hAvancarBrush);
+    DeleteObject(g.hReguaBrush);
+    DeleteObject(g.hFontPulse);
+}
+ 
+======================================= 
+===== layout.cpp 
+======================================= 
+ 
+
+// layout.cpp
+#include "layout.h"
+#include "globals.h"
+void UpdateLayout() {
+    auto& l = layout; // apelido curto
+
+    l.codigoFonteRect = RectPerc(0.52f, 0.96f, 0.7f, 1.0f, l.L, l.A);
+    l.exitRect        = RectPerc(0, 0, 0.09f, 0.08f, l.L, l.A);
+    l.voltarRect      = RectPerc(0.7f, 0.85f, 0.8f, 0.95f, l.L, l.A);
+    l.avancarRect     = RectPerc(0.8f, 0.85f, 0.9f, 0.95f, l.L, l.A);
+    l.reguaXRect      = RectPerc(0.1f, 0.0f, 1.0f, 0.05f, l.L, l.A);
+    l.reguaYRect      = RectPerc(0.0f, 0.1f, 0.03f, 1.0f, l.L, l.A);
+
+    for (int i = 0; i < 8; i++) {
+        float y1 = 0.1f + i * 0.1f;
+        float y2 = y1 + 0.08f;
+        l.ferramentasRects[i] = RectPerc(0.04f, y1, 0.09f, y2, l.L, l.A);
+    }
+
+    l.copiarRect = RectPerc(0.04f, 0.9f, 0.09f, 0.98f, l.L, l.A);
+}
+
+void GetScreenResolution(HWND hwnd) {
+    auto& l = layout;
+
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+
+    l.L = rc.right - rc.left;
+    l.A = rc.bottom - rc.top;
+
+    l.buttonWidth  = (int)(l.L * 0.10);
+    l.buttonHeight = (int)(l.A * 0.07);
+    l.gridX        = (int)(l.L * 0.10);
+    l.gridY        = (int)(l.A * 0.30);
+}
+ 
+======================================= 
+===== main.cpp 
+======================================= 
+ 
+﻿#define UNICODE
+#define _UNICODE
+
+#include <windows.h>
+
+#include "globals.h"
+#include "app.h"
+#include "layout.h"
+#include "regua.h"
+#include "paint.h"
+#include "gdi.h"
+#include "idiomas.h"
+#include "ui_constants.h"
+
+// =======================================================
+// PROTÓTIPOS
+// =======================================================
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+void GetScreenResolution(HWND hwnd);
+void UpdateLayout();
+void CreateGDIResources();
+void CriarRadioButtons(HWND hwnd);
+
+// =======================================================
+// WINMAIN
+// =======================================================
+
+int WINAPI WinMain(
+    HINSTANCE hInstance,
+    HINSTANCE,
+    LPSTR,
+    int
+) {
+    const wchar_t CLASS_NAME[] = L"Intuitio";
+
+    // 1) Registrar classe
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc   = WindowProc;
+    wc.hInstance     = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.style         = CS_HREDRAW | CS_VREDRAW;
+
+    if (!RegisterClassW(&wc)) {
+        DWORD err = GetLastError();
+        if (err != ERROR_CLASS_ALREADY_EXISTS) {
+            MessageBoxW(NULL, L"RegisterClass falhou", L"ERRO", MB_OK);
+            return 0;
+        }
+    }
+
+    // 2) Criar janela
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+
+    app.hwnd = CreateWindowExW(
+        0,
+        CLASS_NAME,
+        L"Intuitio",
+        WS_POPUP,
+        0, 0,
+        screenW,
+        screenH,
+        NULL,
+        NULL,
+        hInstance,
+        NULL
+    );
+
+    if (!app.hwnd) {
+        DWORD err = GetLastError();
+        wchar_t buf[256];
+        wsprintfW(buf, L"CreateWindowEx falhou\nErro = %lu", err);
+        MessageBoxW(NULL, buf, L"ERRO", MB_OK);
+        return 0;
+    }
+
+    // 3) Mostrar janela (DIVISOR DE ÁGUAS)
+    ShowWindow(app.hwnd, SW_SHOW);
+    UpdateWindow(app.hwnd);
+
+    // 4) Agora o tamanho é REAL
+    GetScreenResolution(app.hwnd);
+
+    if (layout.L <= 0 || layout.A <= 0) {
+        MessageBoxW(NULL, L"Client area inválida", L"ERRO", MB_OK);
+        return 0;
+    }
+
+    // 5) Inicializações dependentes do tamanho
+    UpdateLayout();
+    CreateGDIResources();
+
+    // 6) Timer (depois da janela existir)
+    SetTimer(app.hwnd, 1, 500, NULL);
+
+    // 7) Loop de mensagens
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    return 0;
+}
+
+// =======================================================
+// WINDOW PROC
+// =======================================================
+
+LRESULT CALLBACK WindowProc(
+    HWND hwnd,
+    UINT uMsg,
+    WPARAM wParam,
+    LPARAM lParam
+) {
+    auto& a = app;
+    auto& l = layout;
+    auto& r = render;
+
+    switch (uMsg) {
+
+    case WM_CREATE:
+        a.hwnd = hwnd;
+        return 0;
+
+    case WM_COMMAND: {
+        int wmId = LOWORD(wParam);
+        if (wmId >= 1000 && wmId < 1010)
+            a.linguagemSelecionada = wmId - 1000;
+        return 0;
+    }
+
+    case WM_TIMER:
+        if (a.telaRegua) {
+            r.alphaAtual = UpdateAlpha();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        return 0;
+
+    case WM_PAINT:
+        OnPaint(hwnd);
+        return 0;
+
+    case WM_LBUTTONDOWN: {
+        POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+
+        if (PtInRect(&l.exitRect, pt)) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (a.telaRegua) {
+
+            if (PtInRect(&l.reguaXRect, pt))
+                a.valorX = GetReguaValorFromClick(pt, l.reguaXRect, true);
+
+            if (PtInRect(&l.reguaYRect, pt))
+                a.valorY = GetReguaValorFromClick(pt, l.reguaYRect, false);
+
+            if (PtInRect(&l.copiarRect, pt))
+                CopiarCodigoClipboard(a.entidades);
+
+            for (int i = 0; i < 8; i++) {
+                if (PtInRect(&l.ferramentasRects[i], pt)) {
+
+                    float novoX = (float)a.valorX;
+                    float novoY = (float)a.valorY;
+
+                    if (novoX < 10.0f) novoX = 10.0f;
+                    if (novoY < 10.0f) novoY = 10.0f;
+                    if (novoX > 90.0f) novoX = 90.0f;
+                    if (novoY > 90.0f) novoY = 90.0f;
+
+                    Entidade e{ novoX, novoY, 10.0f, 5.0f, {}, i };
+                    swprintf_s(e.texto, 128, L"%c",
+                        L'A' + (int)a.entidades.size());
+
+                    a.entidades.push_back(e);
+                }
+            }
+        }
+        else if (a.idiomaSelecionado) {
+
+            if (PtInRect(&l.avancarRect, pt)) {
+                a.telaRegua = true;
+            }
+            else if (PtInRect(&l.voltarRect, pt)) {
+                a.idiomaSelecionado = false;
+            }
+        }
+        else {
+            for (int row = 0; row < 7; row++) {
+                for (int col = 0; col < 8; col++) {
+                    int x = l.gridX + col * l.buttonWidth;
+                    int y = l.gridY + row * l.buttonHeight;
+                    RECT btnRect = { x, y,
+                        x + l.buttonWidth,
+                        y + l.buttonHeight };
+
+                    if (PtInRect(&btnRect, pt)) {
+                        a.idiomaAtualRow = row;
+                        a.idiomaAtualCol = col;
+                        a.idiomaSelecionado = true;
+                        CriarRadioButtons(hwnd);
+                    }
+                }
+            }
+        }
+
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+
+    return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+}
+
+// =======================================================
+// RADIO BUTTONS
+// =======================================================
+
+void CriarRadioButtons(HWND hwnd) {
+    auto& l = layout;
+    auto& a = app;
+
+    int radioY       = l.gridY + 7 * l.buttonHeight + 10;
+    int espacamentoX = (int)(l.buttonWidth * 0.8f);
+
+    for (int i = 0; i < 10; i++) {
+        if (a.hRadioButtons[i]) continue;
+
+        int x = l.gridX + (i * espacamentoX);
+
+        a.hRadioButtons[i] = CreateWindowExW(
+            0,
+            L"BUTTON",
+            linguagens[i],
+            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+            x, radioY,
+            (int)(l.buttonWidth * 0.7f),
+            30,
+            hwnd,
+            (HMENU)(1000 + i),
+            GetModuleHandle(NULL),
+            NULL
+        );
+
+        SendMessageW(
+            a.hRadioButtons[i],
+            WM_SETFONT,
+            (WPARAM)GetStockObject(DEFAULT_GUI_FONT),
+            TRUE
+        );
+    }
+
+    SendMessageW(a.hRadioButtons[0], BM_SETCHECK, BST_CHECKED, 0);
+    a.linguagemSelecionada = 0;
+}
+ 
+======================================= 
+===== paint.cpp 
+======================================= 
+ 
+
+//paint.cpp
+#pragma execution_character_set("utf-8")
+#include "idiomas.h"
+#include "ui_constants.h"
+#include "app.h"
+#include "paint.h"
+#include "layout.h"
+#include "gdi.h"
+#include "regua.h"
+#include "globals.h"
+
+void OnPaint(HWND hwnd) {
+    auto& a = app;     // apelido para AppState
+    auto& l = layout;  // apelido para LayoutState
+
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd, &ps);
+
+    if (a.telaRegua) {
+        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        SetBkMode(hdc, TRANSPARENT);
+
+        for (const auto& e : a.entidades) {
+            float startX = 0.10f * l.L;
+            float startY = 0.10f * l.A;
+            float areaUtilW = l.L - startX;
+            float areaUtilH = l.A - startY;
+
+            int xReal = (int)(startX + (e.xPerc * areaUtilW / 100.0f));
+            int yReal = (int)(startY + (e.yPerc * areaUtilH / 100.0f));
+            int wReal = (int)(e.wPerc * areaUtilW / 100.0f);
+            int hReal = (int)(e.hPerc * areaUtilH / 100.0f);
+
+            RECT r = { xReal, yReal, xReal + wReal, yReal + hReal };
+            FillRect(hdc, &r, (HBRUSH)GetStockObject(WHITE_BRUSH));
+            FrameRect(hdc, &r, (HBRUSH)GetStockObject(WHITE_BRUSH));
+            DrawTextW(hdc, e.texto, -1, &r,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+
+        wchar_t fraseCompleta[256];
+        swprintf_s(fraseCompleta, 256,
+                   L"please code in %s pra sempre pegar ScreenRes\r\ne sempre use %% da tela to preserve layout",
+                   linguagens[a.linguagemSelecionada]);
+
+        SetTextColor(hdc, RGB(0, render.alphaAtual, 0));
+        SelectObject(hdc, gdi.hFontPulse);
+
+        RECT titleRect = RectPerc(0.1f, 0.05f, 0.9f, 0.2f, l.L, l.A);
+        DrawTextW(hdc, fraseCompleta, -1, &titleRect, DT_CENTER | DT_WORDBREAK);
+
+        int offsetY = 0;
+        for (size_t i = 0; i < a.entidades.size(); i++) {
+            const auto& e = a.entidades[i];
+            wchar_t buf[512];
+            const wchar_t* tipoNome = tiposDescritivos[e.tipo];
+            wchar_t letra = L'A' + (wchar_t)i;
+
+            swprintf_s(buf, 512, L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%",
+                       letra, tipoNome, e.xPerc, e.yPerc, e.wPerc, e.hPerc);
+
+            RECT codeRect = RectPerc(0.2f, 0.15f + (offsetY / (float)l.A),
+                                     0.8f, 0.20f + (offsetY / (float)l.A), l.L, l.A);
+
+            SetTextColor(hdc, RGB(0, render.alphaAtual, 0));
+            SelectObject(hdc, gdi.hFontPulse);
+            DrawTextW(hdc, buf, -1, &codeRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            offsetY += (int)(l.A * 0.05f);
+        }
+
+        DrawRegua(hdc, a.valorX, l.reguaXRect, true);
+        DrawRegua(hdc, a.valorY, l.reguaYRect, false);
+
+        for (int i = 0; i < 8; i++) {
+            FillRect(hdc, &l.ferramentasRects[i], gdi.hAvancarBrush);
+            DrawTextW(hdc, nomesFerramentas[i], -1, &l.ferramentasRects[i],
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+
+        FillRect(hdc, &l.copiarRect, gdi.hVoltarBrush);
+        DrawTextW(hdc, L"COPY CODE", -1, &l.copiarRect,
+                  DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+    }
+    else if (a.idiomaSelecionado) {
+        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        SelectObject(hdc, gdi.hFontMsg);
+        SetTextColor(hdc, RGB(0, 255, 120));
+
+        RECT msgRect = RectPerc(0.1, 0.03, 0.9, 0.25, l.L, l.A);
+        DrawTextW(hdc, mensagens[a.idiomaAtualRow][a.idiomaAtualCol], -1, &msgRect,
+                  DT_CENTER | DT_WORDBREAK);
+
+        FillRect(hdc, &l.voltarRect, gdi.hVoltarBrush);
+        FillRect(hdc, &l.avancarRect, gdi.hAvancarBrush);
+
+        SetTextColor(hdc, RGB(255, 255, 255));
+        DrawTextW(hdc, labelVoltar[a.idiomaAtualRow][a.idiomaAtualCol], -1, &l.voltarRect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, labelContinuar[a.idiomaAtualRow][a.idiomaAtualCol], -1, &l.avancarRect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    else {
+        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        SelectObject(hdc, gdi.hFontTitle);
+        SetTextColor(hdc, RGB(0, 200, 50));
+
+        RECT titleRect = RectPerc(0, 0.05, 1, 0.25, l.L, l.A);
+        DrawTextW(hdc, L"Intuitio et Per Centum", -1, &titleRect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        for (int row = 0; row < 7; row++) {
+            for (int col = 0; col < 8; col++) {
+                int x = l.gridX + col * l.buttonWidth;
+                int y = l.gridY + row * l.buttonHeight;
+                RECT btnRect = { x + 5, y + 5, x + l.buttonWidth - 5, y + l.buttonHeight - 5 };
+
+                FillRect(hdc, &btnRect, gdi.hGridBrush);
+                DrawTextW(hdc, idiomas[row][col], -1, &btnRect,
+                          DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            }
+        }
+    }
+
+    FillRect(hdc, &l.exitRect, gdi.hExitBrush);
+    DrawTextW(hdc, L"X", -1, &l.exitRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    EndPaint(hwnd, &ps);
+}
+ 
+======================================= 
+===== regua.cpp 
+======================================= 
+ 
+
+//regua.cpp
+#include "regua.h"
+#include "globals.h"
+
+int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal) {
+    if (horizontal) {
+        int largura = rect.right - rect.left;
+        if (largura <= 0) return 0; // Evita divis�o por zero
+        int pos = pt.x - rect.left;
+
+        // Garante que o valor fique entre 0 e 100
+        if (pos < 0) pos = 0;
+        if (pos > largura) pos = largura;
+
+        return (pos * 100) / largura;
+    } else {
+        int altura = rect.bottom - rect.top;
+        if (altura <= 0) return 0;
+        int pos = pt.y - rect.top;
+
+        if (pos < 0) pos = 0;
+        if (pos > altura) pos = altura;
+
+        return (pos * 100) / altura;
+    }
+}
+
+void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
+    // 1. Preenche o fundo da r�gua
+    FillRect(hdc, &rect, gdi.hReguaBrush);
+
+    // 2. Cria as canetas locais (Precisamos deletar elas no fim desta fun��o!)
+    HPEN hTickPen   = CreatePen(PS_SOLID, 1, RGB(200, 200, 200)); // Cinza para os tracinhos
+    HPEN hMarkerPen = CreatePen(PS_SOLID, 3, RGB(0, 255, 100));   // Verde para o marcador
+
+    // 3. Seleciona a caneta de tracinhos e guarda a "caneta padr�o" que estava l� antes
+    // Isso � regra de ouro no Windows: "Quem entra, guarda o que estava l�"
+    HGDIOBJ hOldPen = SelectObject(hdc, hTickPen);
+
+    int start  = horizontal ? rect.left : rect.top;
+    int end    = horizontal ? rect.right - 1 : rect.bottom - 1;
+    int length = end - start;
+
+    // Desenha os tracinhos (Ticks)
+    for (int i = 0; i <= 100; i += 5) {
+        int pos = start + (int)((length * i) / 100.0f);
+        int tickSize = (i % 10 == 0) ? 12 : 6; // Tracinhos maiores a cada 10%
+
+        if (horizontal) {
+            MoveToEx(hdc, pos, rect.top, NULL);
+            LineTo(hdc, pos, rect.top + tickSize);
+        } else {
+            MoveToEx(hdc, rect.left, pos, NULL);
+            LineTo(hdc, rect.left + tickSize, pos);
+        }
+    }
+
+    // 4. Desenha o marcador (o valor atual)
+    SelectObject(hdc, hMarkerPen);
+    int markerPos = start + (int)((length * valor) / 100.0f);
+
+    if (horizontal) {
+        MoveToEx(hdc, markerPos, rect.top, NULL);
+        LineTo(hdc, markerPos, rect.bottom);
+    } else {
+        MoveToEx(hdc, rect.left, markerPos, NULL);
+        LineTo(hdc, rect.right, markerPos);
+    }
+
+    // 5. LIMPEZA OBRIGAT�RIA (O "Verniz")
+    // Primeiro, voltamos com a caneta original do Windows
+    SelectObject(hdc, hOldPen);
+
+    // Agora, deletamos as canetas que criamos para n�o entupir a mem�ria
+    DeleteObject(hTickPen);
+    DeleteObject(hMarkerPen);
+}
+ 
+======================================= 
+===== textos.cpp 
+======================================= 
+ 
+
+//textos.cpp
+#include "idiomas.h"
+#include "globals.h"
+
+const wchar_t* infoMensagem[7][8] = {
+{
+L"根据需要调整屏幕上对象的大小/移动它们。为了均匀分布，按 [HG]，在其中一个标尺上选择点 1、点 2，按顺序选择对象，然后按 ENTER(这使用对象中心)。将屏幕代码复制到 AI，并说明您将使用的编程语言。 使用鼠标滚轮进行缩放。",
+L"अपनी इच्छानुसार स्क्रीन पर ऑब्जेक्ट्स का आकार बदलें/स्थानांतरित करें। समान वितरण के लिए, [HG] दबाएं, किसी एक रूलर पर पॉइंट 1, पॉइंट 2 चुनें, क्रम में ऑब्जेक्ट्स चुनें, ENTER(यह ऑब्जेक्ट केंद्रों का उपयोग करता है) दबाएं। स्क्रीन कोड को AI में कॉपी करें और बताएं कि आप किस भाषा में प्रोग्रामिंग करेंगे। ज़ूम करने के लिए माउस व्हील का उपयोग करें।",
+L"Resize/move objects on the screen as you wish. For homogeneous distribution, press [HG], select point 1, point 2 on ONE OF THE RULERS, select objects in order, ENTER(this uses object centers). Copy the screen code to the AI and say which language you will be programming in. Use mouse wheel to ZOOM.",
+L"قم بتغيير حجم/تحريك الكائنات على الشاشة كما تريد. للتوزيع المتجانس، اضغط على [HG]، اختر النقطة 1، النقطة 2 على أحد المساطر، اختر الكائنات بالترتيب، ENTER(يستخدم مراكز الكائنات). انسخ كود الشاشة للذكاء الاصطناعي واذكر اللغة التي ستبرمج بها. استخدم عجلة الماوس للتكبير.",
+L"Redimensione/mova os objetos na tela conforme desejar. Para distribuição homogênea, aperte [HG], selecione em uma das réguas ponto 1, ponto 2, selecione objetos na ordem, ENTER(isso usa os centros dos objetos). Copie o código da tela para a inteligência artificial e diga em qual linguagem você estará programando. Use a roda do mouse para dar ZOOM.",
+L"আপনার ইচ্ছামতো স্ক্রিনে অবজেক্টগুলো রিসাইজ/মুভ করুন। সমান বন্টনের জন্য, [HG] টিপুন, একটি রুলারে পয়েন্ট ১, পয়েন্ট ২ সিলেক্ট করুন, ক্রমানুসারে অবজেক্টগুলো সিলেক্ট করুন, ENTER(এটি অবজেক্টের কেন্দ্র ব্যবহার করে) টিপুন। স্ক্রিন কোডটি এআই-তে কপি করুন এবং কোন ভাষায় প্রোগ্রামিং করবেন তা বলুন। জুম করতে মাউসের স্ক্রল হুইল ব্যবহার করুন।",
+L"Méretezze át/mozgassa az objektumokat a képernyőn tetszés szerint. Homogén elosztáshoz nyomja meg a [HG]-t, válassza ki a 1. pontot, 2. pontot az egyik vonalzón, válassza ki az objektumokat sorrendben, ENTER(az objektumközéppontokat használja). Másolja a képernyőkódot az AI-nak, és adja meg, melyik nyelven fog programozni. A nagyításhoz használd az egérgörgőt.",
+L"Změňte velikost/přesuňte objekty na obrazovce podle libosti. Pro homogenní rozdělení stiskněte [HG], vyberte bod 1, bod 2 na jedné z pravidelek, vyberte objekty v pořadí, ENTER(používá středy objektů). Zkopírujte kód obrazovky do AI a uveďte, v jakém jazyce budete programovat. Pro přiblížení použijte kolečko myši."
+},
+{
+L"Изменяйте размер/перемещайте объекты на экране по желанию. Для однородного распределения нажмите [HG], выберите точку 1, точку 2 на одном из линейки, выберите объекты по порядку, ENTER(использует центры объектов). Скопируйте код экрана для ИИ и укажите язык программирования. Используйте колесо мыши для масштабирования.",
+L"画面上のオブジェクトを自由にリサイズ/移動してください。均等配置するには、[HG]を押し、一つの定規上で点1、点2を選択し、オブジェクトを順番に選択してENTER(オブジェクトの中心を使用)。画面コードをAIにコピーし、プログラミング言語を指定してください。ズームするにはマウスホイールを使用してください。",
+L"원하는 대로 화면의 개체 크기를 조정하거나 이동하세요. 균일한 분포를 위해 [HG]를 누르고 한 자尺에서 점 1, 점 2를 선택한 다음 개체를 순서대로 선택하고 ENTER(개체의 중심을 사용)를 누르세요. 화면 코드를 AI에 복사하고 프로그래밍할 언어를 말하세요. 확대하려면 마우스 휠을 사용하세요.",
+L"Größe/Position der Objekte auf dem Bildschirm nach Wunsch anpassen. Für homogene Verteilung [HG] drücken, Punkt 1, Punkt 2 auf einem Lineal wählen, Objekte in Reihenfolge wählen, ENTER(verwendet Objektmitten). Kopieren Sie den Code für die KI und geben Sie die Programmiersprache an. Verwenden Sie das Mausrad zum Zoomen.",
+L"Redimensionnez/déplacez les objets sur l'écran comme vous le souhaitez. Pour une distribution homogène, appuyez sur [HG], sélectionnez le point 1, le point 2 sur une des règles, sélectionnez les objets dans l'ordre, ENTER(utilise les centres des objets). Copiez le code à l'IA et précisez le langage. Utilisez la molette de la souris pour zoomer.",
+L"Ridimensiona/sposta gli oggetti sullo schermo come desideri. Per una distribuzione omogenea, premi [HG], seleziona punto 1, punto 2 su una delle righe, seleziona gli oggetti in ordine, ENTER(usa i centri degli oggetti). Copia il codice dello schermo all'IA e indica il linguaggio di programmazione. Usa la rotella del mouse per lo zoom.",
+L"Zmeňte veľkosť/presuňte objekty na obrazovke podľa ľubovôle. Pre homogénne rozdelenie stlačte [HG], vyberte bod 1, bod 2 na jednej z čiarok, vyberte objekty v poradí, ENTER(používa stredy objektov). Skopírujte kód obrazovky do AI a uveďte, v akom jazyce budete programovať. Na priblíženie použite koliesko myši.",
+L"Променете размера/преместете обектите на екрана по желание. За хомогенно разпределение натиснете [HG], изберете точка 1, точка 2 на една от линиите, изберете обектите по ред, ENTER(използва центровете на обектите). Копирайте кода на екрана за ИИ и кажете на какъв език ще програмирате. Използвайте колелцето на мишката за мащабиране."
+},
+{
+L"Redimensiona/mueve los objetos en la pantalla como desees. Para distribución homogénea, presiona [HG], selecciona punto 1, punto 2 en una de las reglas, selecciona objetos en orden, ENTER(usa centros de los objetos). Copia el código al AI y di en qué lenguaje programarás. Usa la rueda del mouse para hacer zoom.",
+L"Ekrandaki nesneleri istediğiniz gibi yeniden boyutlandırın/taşıyın. Homojen dağılım için [HG] tuşuna basın, cetvelden nokta 1 ve nokta 2'yi seçin, nesneleri sırayla seçin ve ENTER(nesne merkezlerini kullanır) a basın. Ekran kodunu yapay zekaya kopyalayın ve dili belirtin. Yakınlaştırmak için fare tekerleğini kullanın.",
+L"اشیاء روی صفحه را هرطور می‌خواهید تغییر اندازه دهید یا جابجا کنید. برای توزیع یکنواخت، [HG] را فشار دهید، در یکی از خط‌کش‌ها نقطه ۱ و ۲ را انتخاب کنید، اشیاء را به ترتیب انتخاب و ENTER(از مرکز اشیاء استفاده می‌کند) بزنید. کد را برای هوش مصنوعی کپی کرده و زبان برنامه نویسی را بگویید. برای زوم از چرخ ماوس استفاده کنید.",
+L"Zmieniaj rozmiar/przesuwaj obiekty na ekranie według uznania. Dla jednorodnego rozkładu naciśnij [HG], wybierz punkt 1, punkt 2 na jednej z linijek, wybierz obiekty w kolejności, ENTER(używa środków obiektów). Skopiuj kod ekranu do AI i powiedz, w jakim języku programujesz. Użyj kółka myszy, aby przybliżyć.",
+L"Pas de grootte van objecten op het scherm aan of verplaats ze naar wens. Voor homogene verdeling, druk op [HG], selecteer punt 1, punt 2 op een van de linialen, selecteer objecten in volgorde, ENTER(gebruikt objectcentra). Kopieer de code naar de AI en geef aan in welke taal je programmeert. Gebruik het muiswiel om te zoomen.",
+L"Ändra storlek/flytta objekt på skärmen som du vill. För homogen fördelning, tryck på [HG], välj punkt 1, punkt 2 på någon av linjalerna, välj objekt i ordning, ENTER(använder objektens mittpunkter). Kopiera skärmkoden till AI och ange vilket språk du programmerar i. Använd mushjulet för att zooma.",
+L"Promenite veličinu/pomerite objekte na ekranu po želji. Za homogenu distribuciju pritisnite [HG], izaberite tačku 1, tačku 2 na jednoj od ravnala, izaberite objekte redom, ENTER(koristi centre objekata). Kopirajte kod ekrana za AI i recite na kom jeziku programirate. Koristite točkić miša za zumiranje.",
+L"Promijenite veličinu/pomaknite objekte na zaslonu po želji. Za homogenu distribuciju pritisnite [HG], odaberite točku 1, točku 2 na jednoj od ravnala, odaberite objekte redom, ENTER(koristi središta objekata). Kopirajte kod zaslona za AI i recite na kojem jeziku programirate. Koristite kotačić miša za zumiranje."
+},
+{
+L"ปรับขนาด/ย้ายวัตถุบนหน้าจอตามต้องการ เพื่อการกระจายที่สม่ำเสมอ ให้กด [HG] เลือกจุด 1 จุด 2 บนหนึ่งในไม้บรรทัด เลือกวัตถุตามลำดับแล้วกด ENTER(ใช้จุดศูนย์กลางของวัตถุ) คัดลอกโค้ดหน้าจอไปที่ AI และระบุภาษาที่คุณจะใช้เขียนโปรแกรม ใช้ล้อเมาส์เพื่อซูม",
+L"Thay đổi kích thước/di chuyển các đối tượng trên màn hình theo ý muốn. Để phân bổ đồng đều, nhấn [HG], chọn điểm 1, điểm 2 trên một trong các thanh thước, chọn các đối tượng theo thứ tự, ENTER(sử dụng tâm đối tượng). Sao chép mã màn hình cho AI và cho biết bạn sẽ lập trình bằng ngôn ngữ nào. Sử dụng bánh xe chuột để phóng to.",
+L"שנה גודל/הזז את האובייקטים על המסך כרצונך. להפצה הומוגנית, לחץ על [HG], בחר נקודה 1, נקודה 2 על אחד מהמדדים, בחר אובייקטים לפי הסדר, ENTER(משתמש במרכזי האובייקטים)。 העתק את קוד המסך לבינה המלאכותית וציין באיזו שפה תתכנת。 השתמש בגלגלת העכבר כדי לבצע זום。",
+L"अपनी पसंद के अनुसार स्क्रीन पर ऑब्जेक्ट का आकार बदलें/स्थानांतरित करें। समान वितरण के लिए, [HG] दबाएं, किसी एक रूलर पर पॉइंट 1, पॉइंट 2 चुनें, क्रम में ऑब्जेक्ट चुनें, ENTER(यह ऑब्जेक्ट केंद्रों का उपयोग करता है) दबाएं। स्क्रीन कोड को AI में कॉपी करें और भाषा बताएं। ज़ूम करने के लिए माउस व्हील का उपयोग करें।",
+L"Ubah ukuran/pindahkan objek di layar sesuka Anda. Untuk distribusi homogen, tekan [HG], pilih titik 1, titik 2 pada salah satu penggaris, pilih objek secara berurutan, ENTER(menggunakan pusat objek). Salin kode layar ke AI dan beri tahu bahasa pemrograman yang Anda gunakan. Gunakan roda mouse untuk zoom.",
+L"Redimensionează/mută obiectele de pe ecran după bunul plac. Pentru distribuție omogenă, apasă [HG], selectează punctul 1, punctul 2 pe una din rigle, selectează obiectele în ordine, ENTER(folosește centrele obiectelor). Copiază codul ecranului pentru IA și spune în ce limbaj programezi. Folosește rotița mouse-ului pentru zoom.",
+L"Keiskite objektų dydį / perkelkite juos ekrane kaip norite. Homogeniškam paskirstymui paspauskite [HG], pasirinkite 1 tašką, 2 tašką ant vienos iš liniuočių, pasirinkite objektus eilės tvarka, ENTER(visada naudoja objektų centrus). Nukopijuokite ekrano kodą AI ir nurodykite kalbą. Norėdami priartinti, naudokite pelės ratuką.",
+L"Mainiet objektu izmēru/pārvietojiet tos ekrānā, kā vēlaties. Homogēnai sadalei nospiediet [HG], izvēlieties 1. punktu, 2. punktu uz viena no lineāliem, izvēlieties objektus secībā, ENTER(izmanto objektu centrus). Kopējiet ekrāna kodu AI un norādiet programmēšanas valodu. Izmantojiet peles ritenīti, lai tuvinātu."
+},
+{
+L"Αλλάξτε μέγεθος/μετακινήστε τα αντικείμενα στην οθόνη όπως θέλετε. Για ομοιογενή κατανομή, πατήστε [HG], επιλέξτε σημείο 1, σημείο 2 σε μία από τις γραμμές, επιλέξτε αντικείμενα με τη σειρά, ENTER(χρησιμοποιεί κέντρα αντικειμένων). Αντιγράψτε τον κώδικα στο AI και πείτε τη γλώσσα. Χρησιμοποιήστε τη ροδέλα του ποντικιού για ζουμ.",
+L"Ubah saiz/gerakkan objek pada skrin mengikut kesukaan anda. Untuk pengagihan homogen, tekan [HG], pilih titik 1, titik 2 pada salah satu pembaris, pilih objek mengikut urutan, ENTER(guna pusat objek). Salin kod skrin ke AI dan nyatakan bahasa pengaturcaraan anda. Gunakan roda tetikus untuk zum.",
+L"Змінюйте розмір/переміщуйте об'єкти на екрані за бажанням. Для однорідного розподілу натисніть [HG], виберіть точку 1, точку 2 на одній з лінійок, виберіть об'єкти по порядку, ENTER(використовує центри об'єктів)。 Скопіюйте код екрана для ШІ та вкажіть мову програмування。 Використовуйте колесо миші для масштабування。",
+L"Skaler/flyt objekter på skærmen som du vil. For homogen fordeling, tryk på [HG], vælg punkt 1, punkt 2 på en af linjalerne, vælg objekter i rækkefølge, ENTER(bruger objektcentrer). Kopier skærmkoden til AI og angiv hvilket sprog du programmerer i。 Brug musehjulet til at zoome.",
+L"Muuta objektien kokoa/siirrä niitä näytöllä haluamallasi tavalla. Tasaisen jakautumisen saamiseksi paina [HG], valitse piste 1, piste 2 yhdellä viivaimista, valitse objektit järjestyksessä, ENTER(käyttää objektien keskipisteitä). Kopioi koodi tekoälylle ja kerro ohjelmointikieli。 Käytä hiiren rullaa zoomaukseen.",
+L"Endre størrelse/flytt objekter på skjermen som du vil. For homogen fordeling, trykk [HG], velg punkt 1, punkt 2 på en av linjalene, velg objekter i rekkefølge, ENTER( Bruker objektsentre). Kopier skjermkoden til KI og oppgi hvilket språk du programmerer i。 Bruk musehjulet for å zoome.",
+L"Muutke objektide suurust/liigutage neid ekraanil vastavalt soovile. Homogeenseks jaotamiseks vajutage [HG], valige punkt 1, punkt 2 ühel joonlaudadest, valige objektid järjekorras, ENTER(kasutab objektide keskpunkte). Kopeerige ekraanikood AI-le ja öelge programmeerimiskeel. Suurendamiseks kasuta hiirerulli.",
+L"Baguhin ang laki/ilipat ang mga object sa screen hangga't gusto mo. Para sa pantay na distribusyon, pindutin ang [HG], piliin ang point 1, point 2 sa isa sa mga ruler, piliin ang mga object nang sunod-sunod, ENTER(gamit ang gitna ng mga object). I-copy ang code sa AI at sabihin ang wika. Gamitin ang mouse wheel para mag-zoom."
+},
+{
+L"Badilisha ukubwa/sogeza vitu kwenye skrini unavyotaka. Kwa usambazaji sare, bonyeza [HG], chagua hatua ya 1, hatua ya 2 kwenye moja ya viwango, chagua vitu kwa mlolongo, ENTER(hutumia vitovu vya vitu). Nakili kodi kwenye AI na useme lugha unayotumia. Tumia gurudumu la kipanya kufanya zoom.",
+L"Экрандағы объектілердің өлшемін өзгертіңіз/жылжытыңыз. Бірқалыпты бөлу үшін [HG] басыңыз, бір өлшегіште 1-нүкте мен 2-нүктені таңдаңыз, объектілерді ретімен таңдап, ENTER(объект орталығын қолданады) басыңыз. Кодты ЖИ-ге көшіріп, бағдарламалау тілін айтыңыз. Үлкейту үшін тінтуірдің дөңгелегін пайдаланыңыз。",
+L"Ekrandagi ob'ektlar hajmini o'zgartiring/ko'chiring. Bir xil taqsimlash uchun [HG] tugmasini bosing, chiziqdan 1-nuqta va 2-nuqtani tanlang, ob'ektlarni tartibda tanlang va ENTER(ob'ekt markazlarini ishlatadi) tugmasini bosing. Kodni AIga nusxalang va tilni ayting. Zoom qilish uchun sichqoncha g'ildiragidan foydalaning.",
+L"Ekrandakı obyektlərin ölçüsünü dəyişdirin/köçürün. Bərabər paylanma üçün [HG] sıxın, liniyadan nöqtə 1 və nöqtə 2-ni seçin, obyektləri ardıcıllıqla seçin və ENTER(obyekt mərkəzlərini istifadə edir) sıxın. Kodu AI-ya kopyalayın və dili qeyd edin. Zoom üçün siçan təkərindən istifadə edin。",
+L"შეცვალეთ ობიექტების ზომა/გადაადგილეთ ეკრანზე სურვილისამებრ. თანაბარი განაწილებისთვის დააჭირეთ [HG]-ს, ერთ-ერთ ხაზგარსზე წერტილი 1, წერტილი 2 აირჩიეთ, ობიექტები თანმიმდევრობით, ENTER(ობიექტის ცენტრებს იყენებს). დააკოპირეთ კოდი AI-სთვის და მიუთითეთ ენა. ზუმისთვის გამოიყენეთ მაუსის ბორბალი。",
+L"Փոխեք օբյեկտների չափը/տեղափոխեք դրանք էկրանին ըստ ցանկության: Հավասարաչափ բաշխման համար սեղմեք [HG], ընտրեք կետ 1, կետ 2 մեկ գծագրիչի վրա, ընտրեք օբյեկտները հերթականությամբ, ENTER(օգտագործում է օբյեկտների կենտրոնները): Պատճենեք կոդը AI-ի համար և նշեք լեզուն: Զում անելու համար օգտագործեք մկնիկի անիվը։",
+L"Промените величину/померите објекте на екрану по жељи. За хомогену дистрибуцију притисните [HG], изаберите тачку 1, тачку 2 на једном од линеара, изаберите објекте редом, ENTER(користи центре објеката). Копирајте код екрана за АИ и реците на ком језику програмирате. Користите точкић миша за зумирање。",
+L"Дэлгэц дээрх объектуудын хэмжээг өөрчлөх/зөөх боломжтой. Жигд хуваарилахын тулд [HG] дарж, нэг хэмжүүр дээрх 1-р цэг, 2-р цэгийг сонгож, объектуудыг дарааллаар нь сонгоод ENTER(объектын төвийг ашиглана) дарна уу. Кодыг AI руу хуулж, хэлээ хэлнэ үү. Томруулахын тулд хулганы дугуйг ашиглана уу."
+},
+{
+L"స్క్రీన్‌పై ఆబ్జెక్ట్‌ల పరిమాణాన్ని మార్చండి/తరలించండి. సమాన పంపిణీ కోసం, [HG] నొక్కండి, ఒక రేఖాంశంపై పాయింట్ 1, పాయింట్ 2 ఎంచుకోండి, ఆబ్జెక్ట్‌లను క్రమంలో ఎంచుకోండి, ENTER(ఆబ్జెక్ కేంద్రాలను ఉపయోగిస్తుంది) నొక్కండి. కోడ్‌ను AIకి కాపీ చేసి భాషను చెప్పండి. జూమ్ చేయడానికి మౌస్ వీల్‌ను ఉపయోగించండి。",
+L"तुमच्या इच्छानुसार स्क्रीनवरील वस्तूंचा आकार बदला/हलवा. एकसारख्या वितरणासाठी, [HG] दाबा, एका रूलरवर बिंदू 1, बिंदू 2 निवडा, वस्तू क्रमाने निवडा, ENTER(वस्तूची केंद्रे वापरते) दाबा. स्क्रीन कोड AI वर कॉपी करा आणि तुमची प्रोग्रामिंग भाषा सांगा. झूम करण्यासाठी माऊस व्हील वापरा。",
+L"திரையில் உள்ள பொருட்களை உங்கள் விருப்பப்படி நகர்த்தவும்/அளவை மாற்றவும். சமமாகப் பிரிக்க [HG] அழுத்தி, ஒரு ஓலரில் புள்ளி 1, புள்ளி 2-ஐத் தேர்ந்தெடுத்து, பொருட்களை வரிசையாகத் தேர்ந்தெடுத்து ENTER(மையப் புள்ளிகளைப் பயன்படுத்தும்) அழுத்தவும். குறியீட்டை AI-க்கு நகலெடுத்து மொழியைக் குறிப்பிடவும். ஜூம் செய்ய மவுஸ் சக்கரத்தை பயன்படுத்தவும்。",
+L"اپنی مرضی کے مطابق اسکرین پر اشیاء کا سائز بدلیں/منتقل کریں۔ یکساں تقسیم کے لیے [HG] دبائیں، ایک رولر پر نقطہ 1 اور 2 منتخب کریں، اشیاء کو ترتیب سے منتخب کریں اور ENTER(اشیاء کے مراکز کا استعمال کرتا ہے) دبائیں۔ کوڈ AI کو کاپی کریں اور اپنی زبان بتائیں۔ زوم کرنے کے لیے ماؤس وہیل استعمال کریں۔",
+L"ಪರದೆಯ ಮೇಲಿನ ವಸ್ತುಗಳನ್ನು ನಿಮ್ಮ ಇಚ್ಛೆಯಂತೆ ಮರುಗಾತ್ರಗೊಳಿಸಿ/ಸರಿಸಿ. ಸಮಾನ ವಿತರಣೆಗಾಗಿ [HG] ಒತ್ತಿ, ಒಂದು ರೂಲರ್‌ನಲ್ಲಿ ಬಿಂದು 1, ಬಿಂದು 2 ಆಯ್ಕೆಮಾಡಿ, ವಸ್ತುಗಳನ್ನು ಕ್ರಮವಾಗಿ ಆಯ್ಕೆಮಾಡಿ ENTER(ವಸ್ತು ಕೇಂದ್ರಗಳನ್ನು ಬಳಸುತ್ತದೆ) ಒತ್ತಿ. ಕೋಡ್ ಅನ್ನು AI ಗೆ ನಕಲಿಸಿ ಮತ್ತು ಭಾಷೆಯನ್ನು ತಿಳಿಸಿ. ಜೂಮ್ ಮಾಡಲು ಮೌಸ್ ವೀಲ್ ಬಳಸಿ。",
+L"તમારી ઈચ્છા મુજબ સ્ક્રીન પરના ઓબ્જેક્ટનું કદ બદલો/ખસેડો. સમાન વિતરણ માટે, [HG] દબાવો, એક રૂલર પર બિંદુ 1, બિંદુ 2 પસંદ કરો, ઓબ્જેક્ટ્સ ક્રમમાં પસંદ કરો, ENTER(ઓબ્જેક્ટ સેન્ટર્સનો ઉપયોગ કરે છે) દબાવો. કોડને AI માં કોપી કરો અને ભાષા જણાવો. ઝૂમ કરવા માટે માઉસ વ્હીલનો ઉપયોગ કરો。",
+L"സ്ക്രീനിലെ ഒബ്‌ജക്റ്റുകളുടെ വലുപ്പം മാറ്റുകയോ നീക്കുകയോ ചെയ്യാം. തുല്യമായി വിതരണം ചെയ്യാൻ [HG] അമർത്തി, ഒരു റൂളറിൽ പോയിന്റ് 1, പോയിന്റ് 2 എന്നിവ തിരഞ്ഞെടുക്കുക, ഒബ്‌ജക്റ്റുകൾ ക്രമത്തിൽ തിരഞ്ഞെടുത്ത് ENTER(ഒബ്‌ജക്റ്റ് സെന്ററുകൾ ഉപയോഗിക്കുന്നു) അമർത്തുക. കോഡ് AI-ലേക്ക് പകർത്തി ഭാഷ പറയുക. സൂം ചെയ്യാൻ മൗസ് വീൽ ഉപയോഗിക്കുക。",
+L"ਸਕ੍ਰੀਨ 'ਤੇ ਵਸਤੂਆਂ ਦਾ ਆਕਾਰ ਬਦਲੋ/ਹਿਲਾਓ। ਬਰਾਬਰ ਵੰਡ ਲਈ [HG] ਦਬਾਓ, ਇੱਕ ਰੂਲਰ ਤੇ ਬਿੰਦੂ 1, ਬਿੰਦੂ 2 ਚੁਣੋ, ਵਸਤੂਆਂ ਨੂੰ ਕ੍ਰਮ ਵਿੱਚ ਚੁਣੋ, ENTER(ਵਸਤੂ ਕੇਂਦਰਾਂ ਦੀ ਵਰਤੋਂ ਕਰਦਾ ਹੈ) ਦਬਾਓ। ਕੋਡ ਨੂੰ AI ਵਿੱਚ ਕਾਪੀ ਕਰੋ ਅਤੇ ਆਪਣੀ ਭਾਸ਼ਾ ਦੱਸੋ। ਜ਼ੂਮ ਕਰਨ ਲਈ ਮਾਊਸ ਵ੍ਹੀਲ ਵਰਤੋ।"
+}
+};
+ const wchar_t* mensagens[7][8] = {
+    {
+        L"你曾經難以向AI解釋界面設計嗎？特別是說明每個部分該如何呈現？這個程序讓你按自己喜歡的方式構建界面，並將所有數值轉換為百分比，讓界面在任何分辨率下保持完美。",
+        L"क्या आपको AI को प्रोग्राम के每个部分 का डिज़ाइन समझाने में कठिनाई हुई? यह प्रोग्राम आपको अपनी पसंद का इंटरफेस बनाने देता है और सभी मान प्रतिशत में बदल देता है ताकि इंटरफेस हर रिज़ॉल्यूशन में सही रहे।",
+        L"Did you ever struggle to explain to an AI exactly how each part of your program should be? This program lets you build the interface exactly how you like, converting all values to percentages so it remains perfect on any resolution.",
+        L"هل واجهت صعوبة في شرح تصميم كل جزء من برنامجك للذكاء الاصطناعي؟ هذا البرنامج يسمح ببناء الواجهة كما تحب ويحول جميع القيم لنسب مئوية لتبقى الواجهة مثالية في كل الدقات.",
+        L"Você já teve dificuldade para explicar para uma inteligência artificial exatamente como cada parte do seu programa deve ser? Este programa deixa você construir a interface do jeitinho que você gosta, convertendo todos os valores numéricos para percentuais, fazendo com que sua interface permaneça perfeita em qualquer resolução.",
+        L"আপনি কি কখনো এআই কে প্রোগ্রামের প্রতিটি অংশ কীভাবে হওয়া উচিত ব্যাখ্যা করতে অসুবিধা করেছেন? এই প্রোগ্রাম আপনার পছন্দমতো ইন্টারফেস তৈরি করতে দেবে এবং সব সংখ্যা শতকরায় রূপান্তর করবে যাতে ইন্টারফেস যেকোনো রেজোলিউশনে নিখুঁত থাকে।",
+        L"Nehéz volt elmagyarázni az AI-nak, hogy a program minden része hogyan nézzen ki? Ez a program lehetővé teszi a felület tetszés szerinti építését és az összes értéket százalékokká alakítja, hogy bármilyen felbontásban tökéletes maradjon.",
+        L"Měli jste potíže s vysvětlováním AI, jak má vypadat každá část vašeho programu? Tento program vám umožní sestavit rozhraní přesně podle vašich představ a převede všechny hodnoty na procenta, aby zůstalo dokonalé v jakémkoli rozlišení."
+    },
+    {
+        L"Вы испытывали трудности объясняя ИИ, как каждая часть программы должна быть? Эта программа позволяет строить интерфейс по вашему вкусу и преобразует все числа в проценты для идеальной работы на любом разрешении.",
+        L"AIにプログラムの各部分がどうあるべきか正確に説明するのが難しかった？このプログラムなら好きなようにインターフェースを作れて、すべての数値をパーセントに変換しどんな解像度でも完璧さを維持します。",
+        L"AI에게 프로그램의 각 부분이 어떻게 되어야 하는지 설명이 어려웠나요? 이 프로그램은 원하는 대로 인터페이스를 만들 수 있게 하고 모든 수치를 퍼센트로 변환해 어떤 해상도에서도 완벽함을 유지합니다。",
+        L"Hatten Sie Schwierigkeiten, einer KI zu erklären, wie jede Teile Ihres Programms sein sollen? Dieses Programm lässt Sie die Oberfläche nach Wunsch bauen und wandelt alle Zahlen in Prozente um - perfekt auf jeder Auflösung.",
+        L"Avez-vous eu du mal à expliquer à une IA comment chaque partie de votre programme doit être? Ce programme vous laisse construire l'interface à votre goût, convertissant tous les nombres en pourcentages pour rester parfaite sur toute résolution.",
+        L"Hai avuto difficoltà a spiegare a un'IA come ogni parte del tuo programma deve essere? Questo programma ti lascia costruire l'interfaccia come preferisci e converte tutti i numeri in percentuali per rimanere perfetta su ogni risoluzione.",
+        L"Mali ste problémy s vysvetľovaním AI, ako má byť každá časť vášho programu? Tento program vám umožní zostaviť rozhranie presne podľa vašich predstáv a prevedie všetky hodnoty na percentá, aby zostalo dokonalé v akomkoľvek rozlíšení.",
+        L"Трудно ли ви беше да обясните на ИИ как всяка част от програмата трябва да бъде? Тази програма ви позволява да изградите интерфейса точно както желаете и преобразува всички стойности в проценти за перфектно представяне при всяка резолюция."
+    },
+    {
+        L"¿Te costó explicarle a una IA cómo debe ser cada parte de tu programa? Este programa te deja construir la interfaz a tu gusto, convirtiendo todos los números a porcentajes para que permanezca perfecta en cualquier resolución.",
+        L"Yapay zekaya programının her parçasının nasıl olması gerektiğini açıklamakta zorlandın mı? Bu program istediğin gibi arayüz oluşturmana izin verir ve tüm sayıları yüzdeye çevirir - her çözünürlükte mükemmel kalır.",
+        L"توضیح اینکه هر بخش برنامه‌ات چطور باید باشد به هوش مصنوعی برات سخت بوده؟ این برنامه اجازه می‌دهد رابط را هرطور دوست داری بسازی و همه اعداد را به درصد تبدیل می‌کند تا در هر رزولوشنی کامل بماند。",
+        L"Miałeś problem z wyjaśnieniem AI, jak każda część programu ma być? Ten program pozwala budować interfejs po swojemu i przelicza wszystkie liczby na procenty - idealny na każdej rozdzielczości.",
+        L"Had je moeite om een AI uit te leggen hoe elke deel van je programma moet zijn? Dit programma laat je de interface bouwen zoals jij wilt en zet alle getallen om naar procenten - perfect op elke resolutie.",
+        L"Hade du svårt att förklara för en AI hur varje del av ditt program ska vara? Detta program låter dig bygga gränssnittet som du vill och omvandlar alla siffror till procent - perfekt på alla upplösningar.",
+        L"Da li ste imali poteškoća da objasnite AI-ju kako svaki deo vašeg programa treba da bude? Ovaj program vam omogućava da napravite interfejs po svojoj želji i pretvara sve vrednosti u procente kako bi ostao savršen na svakoj rezoluciji.",
+        L"Jeste li imali poteškoća objasniti AI-u kako svaki dio vašeg programa treba biti? Ovaj program vam omogućuje da izradite sučelje baš kako želite i pretvara sve vrijednosti u postotke kako bi ostalo savršeno na svakoj razlučivosti."
+    },
+    {
+        L"คุณเคยอธิบายให้ AI ฟังยากไหมว่าส่วนไหนของโปรแกรมต้องเป็นยังไง? โปรแกรมนี้ให้สร้างอินเทอร์เฟซตามใจและแปลงทุกตัวเลขเป็นเปอร์เซ็นต์ เพื่อให้ UI สมบูรณ์แบบทุกความละเอียด。",
+        L"Bạn gặp khó giải thích cho AI từng phần chương trình phải như thế nào? Chương trình này cho phép tạo giao diện theo ý thích và chuyển mọi số thành phần trăm để giao diện luôn hoàn hảo mọi độ phân giải。",
+        L"התקשת להסביר לבינה מלאכותית איך כל חלק בתוכנית שלך צריך להיות? התוכנית מאפשרת לבנות ממשק לפי הטעם שלך ולהמיר את כל המספרים לאחוזים לשמירה על שלמות בכל רזולוציה。",
+        L"AI को प्रोग्राम के हर हिस्से का डिज़ाइन कैसे होना चाहिए समझाने में परेशानी हुई? यह प्रोग्राम अपनी पसंद का इंटरफेस बनाने देता है और सभी संख्याओं को प्रतिशत में बदलकर हर रिज़ॉल्यूशन में सही रखता है।",
+        L"Susah jelaskan ke AI gimana setiap bagian program harus ada? Program ini izinkan buat antarmuka sesuai selera dan ubah semua angka jadi persentase - tetap sempurna di semua resolusi。",
+        L"Ai avut greutăți să explici unei IA cum trebuie să fie fiecare parte a programului tău? Programul îți permite să construiești interfața cum îți place și convertește toate numerele în procente - perfectă pe orice rezoluție。",
+        L"Ar buvo sunku paaiškinti dirbtiniam intelektui, kaip turi būti kiekviena jūsų programos dalis? Ši programa leidžia sukurti sąsają taip, kaip jums patinka, ir paverčia visas vertes procentais, kad ji išliktų tobula bet kokioje raiškoje.",
+        L"Vai jums bija grūti paskaidrot mākslīgajam intelektam, kā katrai jūsu programmas daļai jābūt? Šī programma ļauj izveidot saskarni tieši tā, kā vēlaties, un pārvērš visas vērtības procentos, lai tā paliktu perfekta jebkurā izšķirtspējā."
+    },
+    {
+        L"Δυσκολεύτηκες να εξηγήσεις σε AI πώς πρέπει να είναι κάθε μέρος του προγράμματός σου? Το πρόγραμμα σε αφήνει να φτιάξεις τη διεπαφή όπως θες και μετατρέπει όλους τους αριθμούς σε ποσοστά - τέλεια σε κάθε ανάλυση。",
+        L"Susah nak jelaskan pada AI macam mana setiap bahagian program awak kena jadi? Program ini benarkan awak buat antara muka macam yang awak suka dan tukar semua nombor kepada peratusan - kekal sempurna pada semua resolusi。",
+        L"Трудно пояснити ШІ, як кожна частина програми має бути? Ця програма дозволяє створювати інтерфейс на твій смак і конвертує всі числа у відсотки - ідеально на будь-якій роздільній здатності。",
+        L"Har du svært med at forklare AI, hvordan hver del af dit program skal være? Programmet lader dig bygge brugerfladen som du vil og konverterer alle tal til procent - perfekt på alle opløsninger。",
+        L"Oletko kokenut vaikeuksia selittää tekoälylle, miten jokainen ohjelmasi osa tulisi olla? Tämä ohjelma antaa sinun rakentaa käyttöliittymän makusi mukaan ja muuntaa kaikki numerot prosenteiksi - täydellinen kaikilla resoluutioilla。",
+        L"Har du slitt med å forklare KI hvordan hver del av programmet ditt skal være? Programmet lar deg bygge grensesnittet som du liker og konverterer alle tall til prosent - perfekt på alle oppløsninger。",
+        L"Kas teil oli raskusi tehisintellektile selgitada, kuidas iga teie programmi osa peab olema? See programm võimaldab teil luua liidese täpselt nii, nagu soovite, ja muudab kõik väärtused protsentideks, et see püsiks täiuslik igas resolutsioonis.",
+        L"Nahirapan ka bang ipaliwanag sa AI kung paano dapat ang bawat bahagi ng program mo? Binibigyang-daan ka ng programang ito na buuin ang interface sa paraang gusto mo at ginagawang porsyento ang lahat ng value para manatiling perpekto sa anumang resolusyon."
+    },
+    {
+        L"Je, umewahi kupata shida kumweleza AI kuhusu muundo wa kila sehemu ya programu yako? Programu hii inakuruhusu kujenga kiolesura unavyopenda na kubadilisha thamani zote kuwa asilimia ili kiolesura kibaki kamili katika azimio lolote.", // Kiswahili
+        L"ЖИ-ге бағдарламаның әр бөлігі қалай болуы керектігін түсіндіру қиын болды ма? Бұл бағдарлама сіздің қалауыңызша интерфейсті құруға және барлық мәндерді пайызға айналдыруға мүмкіндік береді.", // Cazaque
+        L"AI-ga dasturingizning har bir qismi qanday bo'lishi kerakligini tushuntirishda qiynaldingizmi? Ushbu dastur interfeysni xohlaganingizcha qurish va barcha qiymatlarni foizga aylantirish imkonini beradi.", // Uzbeque
+        L"Siz AI-yə proqramınızın hər hissəsi necə olmalıdır izah etməkdə çətinlik çəkdinizmi? Bu proqram interfeysi istədiyiniz kimi qurmağa və bütün dəyərləri faizə çevirməyə imkan verir.", // Azeri
+        L"გიჭირდათ AI-სთვის თქვენი პროგრამის ყველა ნაწილი როგორ უნდა იყოს ახსნა? ეს პროგრამა საშუალებას გაძლევთ ააწყოთ ინტერფეისი ისე, როგორც გსურთ და გადაიყვანოთ ყველა მნიშვნელობა პროცენტებში.", // Georgiano
+        L"Դժվարացե՞լ եք AI-ին բացատրել, թե ձեր ծրագրի յուրաքանչյուր մասը ինչպես պետք է լինի: Այս ծրագիրը թույլ է տալիս կառուցել ինտերֆեյսը ձեր ուզածով և բոլոր արժեքները վերածել տոկոսների:", // Armenio
+        L"Да ли сте имали потешкоћа да објасните АИ-ју како сваки део вашег програма треба да буде? Овај програм вам омогућава да направите интерфејс по својој жељи и претвара све вредности у проценте.", // Sérvio (Ciril)
+        L"AI-д таны программын дараа хэсэг тус бүр яаж байх ёстойг тайлбарлахад хэцүү байсан уу? Энэ програм нь интерфейсийг хүссэнээрээ байгуулж, бүх утгыг хувьд шилжүүлэх боломжийг олгоно." // Mongol
+    },
+    {
+        L"మీరు ఎప్పుడైనా AIకి మీ ప్రోగ్రామ్ యొక్క ప్రతి భాగం ఎలా ఉండాలో వివరించడానికి ఇబ్బంది పడ్డారా? ఈ ప్రోగ్రామ్ మీకు నచ్చినట్లుగా ఇంటర్‌ఫేస్‌ను రూపొందించడానికి మరియు అన్ని విలువలను శాతాలుగా మార్చడానికి అనుమతిస్తుంది.", // Telugo
+        L"तुम्हाला कधी AI ला तुमच्या प्रोग्रामच्या प्रत्येक भाग कसा असावा हे समजावून सांगताना त्रास झाला का? हा प्रोग्राम तुम्हाला तुमच्या आवडीनुसार इंटरफेस बनवू देतो आणि सर्व मूल्यांचे टक्क्यांत रूपांतर करतो.", // Marathi
+        L"AI-க்கு உங்கள் நிரலின் ஒவ்வொரு பகுதியும் எப்படி இருக்க வேண்டும் என விளக்குவதில் சிரமம் இருந்ததா? இந்த நிரல் உங்கள் விருப்பப்படி இடைமுகத்தை உருவாக்கவும் அனைத்து மதிப்புகளையும் சதவீதங்களாகவும் மாற்ற அனுமதிக்கிறது.", // Tamil
+        L"کیا آپ کو کبھی AI کو اپنے پروگرام کے ہر حصے کا ڈیزائن کیسا ہونا چاہیے سمجھانے میں دشواری ہوئی؟ یہ پروگرام آپ کو اپنی پسند کا انٹرفیس بنانے اور تمام اقدار کو فیصد میں تبدیل کرنے کی اجازت دیتا ہے۔", // Urdu
+        L"ನೀವು ಎಂದಾದರೂ AI ಗೆ ನಿಮ್ಮ ಪ್ರೋಗ್ರಾಂನ ಪ್ರತಿ ಭಾಗವು ಹೇಗೆ ಇರಬೇಕೆಂದು ವಿವರಿಸಲು ಕಷ್ಟಪಟ್ಟಿದ್ದೀರಾ? ಈ ಪ್ರೋಗ್ರಾಂ ನಿಮ್ಮ ಇಚ್ಛೆಯಂತೆ ಇಂಟರ್ಫೇಸ್ ನಿರ್ಮಿಸಲು ಮತ್ತು ಎಲ್ಲ ಮೌಲ್ಯಗಳನ್ನು ಶೇಕಡಾವಾರುಗಳಾಗಿ ಬದಲಾಯಿಸಲು ಅನುಮತಿಸುತ್ತದೆ.", // Canarim
+        L"શું તમને ક્યારેય AI ને તમારા પ્રોગ્રામના દરેક ભાગ કેવો હોવો જોઈએ તે સમજાવવામાં તકલીફ પડી છે? આ પ્રોગ્રામ તમને તમારી પસંદગી મુજબ ઇન્ટરફેસ બનાવવા અને તમામ મૂલ્યોને ટકામાં ફેરવવા દે છે.", // Guzerate
+        L"നിങ്ങൾ എപ്പോഴെങ്കിലും AI-യോട് നിങ്ങളുടെ പ്രോഗ്രാമിന്റെ ഓരോ ഭാഗവും എങ്ങനെ ഉണ്ടാകണമെന്ന് വിശദീകരിക്കാൻ പ്രയാസപ്പെട്ടോ? ഈ പ്രോഗ്രാം നിങ്ങൾക്ക് ഇഷ്ടമുള്ള രീതിയിൽ ഇന്റർഫേസ് നിർമ്മിക്കാനും എല്ലാ മൂല്യങ്ങളെയും ശതമാനത്തിലേക്ക് മാറ്റാനും അനുവദിക്കുന്നു.", // Malaiala
+        L"ਕੀ ਤੁਹਾਨੂੰ ਕਦੇ AI ਨੂੰ ਆਪਣੇ ਪ੍ਰੋਗਰਾਮ ਦੇ ਹਰ ਹਿੱਸੇ ਨੂੰ ਕਿਵੇਂ ਹੋਣਾ ਚਾਹੀਦਾ ਹੈ ਸਮਝਾਉਣ ਵਿੱਚ ਮੁਸ਼ਕਲ ਆਈ? ਇਹ ਪ੍ਰੋਗਰਾਮ ਤੁਹਾਨੂੰ ਆਪਣੀ ਪਸੰਦ ਅਨੁਸਾਰ ਇੰਟਰਫੇਸ ਬਣਾਉਣ ਅਤੇ ਸਾਰੀਆਂ ਮੁੱਲਾਂ ਨੂੰ ਪ੍ਰਤੀਸ਼ਤ ਵਿੱਚ ਬਦਲਣ ਦੀ ਆਗਿਆ ਦਿੰਦਾ ਹੈ।" // Punjabi
+    }
+};
+ 
+======================================= 
+===== traducoes_menores.cpp 
+======================================= 
+ 
+
+//traducoes_menores.cpp
+#include "idiomas.h"
+#include "globals.h"
+const wchar_t* idiomas[7][8] = {
+    {L"中文", L"हिन्दी", L"English", L"عربي", L"Português", L"বাংলা", L"Magyar", L"Čeština"},
+    {L"Русский", L"日本語", L"한국어", L"Deutsch", L"Français", L"Italiano", L"Slovenčina", L"Български"},
+    {L"Español", L"Türkçe", L"فارسی", L"Polski", L"Nederlands", L"Svenska", L"Srpski", L"Hrvatski"},
+    {L"ไทย", L"Tiếng Việt", L"עִבְרִית", L"हिंदी", L"Indonesia", L"Română", L"Lietuvių", L"Latviešu"},
+    {L"Ελληνικά", L"Melayu", L"Українська", L"Dansk", L"Suomi", L"Norsk", L"Eesti", L"Filipino"},
+    {L"Kiswahili", L"Қазақ", L"Oʻzbek", L"Azərbaycan", L"ქართული", L"Հայերեն", L"Srpski", L"Монгол"},
+    {L"తెలుగు", L"मराठी", L"தமிழ்", L"اردو", L"ಕನ್ನಡ", L"ગુજરાતી", L"മലയാളം", L"ਪੰਜਾਬੀ"}
+};
+const wchar_t* labelContinuar[7][8] = {
+    {L"继续", L"जारी रखें", L"Continue", L"متابعة", L"Continuar", L"চালিয়ে যান", L"Tovább", L"Pokračovat"},
+    {L"Продолжить", L"続ける", L"계속", L"Fortfahren", L"Continuer", L"Continua", L"Pokračovať", L"Продовжити"},
+    {L"Continuar", L"Devam et", L"ادامه دهید", L"Kontynuuj", L"Doorgaan", L"Fortsätt", L"Nastavi", L"Nastaviti"},
+    {L"ดำเนินการต่อ", L"Tiếp tục", L"המשך", L"जारी रखें", L"Lanjutkan", L"Continuă", L"Tędy", L"Tālāk"},
+    {L"Συνέχεια", L"Lanjutkan", L"Продолжить", L"Fortsæt", L"Jatka", L"Fortsett", L"Jätka", L"Magpatuloy"},
+    {L"Mbele", L"Алға", L"Oldinga", L"Devam", L"ადგილზე", L"Շարունակել", L"Продолжить", L"Урагшлах"},
+    {L"కొనసాగండి", L"पुढे", L"முன்னே", L"جاری رکھیں", L"ಮುಂದುವರಿಸಿ", L"પાછળથી", L"തുടരുക", L"ਆਗੇ"}
+};
+const wchar_t* labelVoltar[7][8] = {
+    {L"返回", L"वापस", L"Back", L"عودة", L"Voltar", L"ফিরে যান", L"Vissza", L"Zpět"},
+    {L"Назад", L"戻る", L"뒤로", L"Zurück", L"Retour", L"Indietro", L"Späť", L"Назад"},
+    {L"Volver", L"Geri", L"بازگشت", L"Wstecz", L"Terug", L"Tillbaka", L"Nazad", L"Natrag"},
+    {L"กลับ", L"Quay lại", L"חזור", L"वापस", L"Kembali", L"Înapoi", L"Atgal", L"Atpakaļ"},
+    {L"Πίσω", L"Kembali", L"Назад", L"Tilbage", L"Takaisin", L"Tilbake", L"Tagasi", L"Bumalik"},
+    {L"Nyuma", L"Артқа", L"Orqaga", L"Geri", L"უკან", L"Հետ", L"Назад", L"Буцах"},
+    {L"వెనుకకు", L"मागे", L"பின்னால்", L"واپس", L"ಹಿಂದಕ್ಕೆ", L"પાછા", L"തിരികെ", L"ਪਿੱਛੇ"}
+};
+ 
+======================================= 
+===== ui_constants.cpp 
+======================================= 
+ 
+
+// ui_constants.cpp
+#pragma execution_character_set("utf-8")
+#include "ui_constants.h"
+const wchar_t* const nomesFerramentas[8] = {L"B", L"TF", L"TL", L"C", L"R", L"DM", L"I", L"T"};
+const wchar_t* const tiposDescritivos[8] = {
+    L"BOTAO", L"TEXTO_FIXO", L"TEXTO_LIVRE", L"CHECKLIST",
+    L"RADIO", L"DROPDOWN", L"IMAGEM", L"TABELA"
+};
+const wchar_t* const linguagens[10] = {
+    L"C", L"C++", L"C#", L"Java", L"Java Script",
+    L"Python", L"Visual Basic", L"SQL", L"Delphi/obj Pascal", L"R"
+};
+ 
+======================================= 
+===== app.h 
+======================================= 
+ 
+
+// app.h
+#pragma once
+#include <vector>
+#include <string>
+#include <windows.h>
+#include "globals.h"
+extern std::vector<Entidade> g_entidades;
+std::wstring AddEntidade(int tipo, float xPerc, float yPerc);
+int UpdateAlpha();
+void CopiarCodigoClipboard(const std::vector<Entidade>& entidades);
+void GerarCodigo(const Entidade& e, wchar_t* buf, size_t bufSize);
+ 
+======================================= 
+===== gdi.h 
+======================================= 
+ 
+
+// gdi.h
+#pragma once
+#include <windows.h>
+void CreateGDIResources();
+void DestroyGDIResources();
+ 
+======================================= 
+===== globals.h 
+======================================= 
+ 
+
+//globals.h
+#pragma once
+#include <windows.h>
+#include <vector>
+struct Entidade {
+    float xPerc;
+    float yPerc;
+    float wPerc;
+    float hPerc;
+    wchar_t texto[128];
+    int tipo;
+};
+    struct AppState {
+    bool idiomaSelecionado = false;
+    bool telaRegua = false;
+    int linguagemSelecionada = 1;
+    int idiomaAtualRow = -1;
+    int idiomaAtualCol = -1;
+    int valorX = 50;
+    int valorY = 50;
+    std::vector<Entidade> entidades;
+    HWND hwnd = nullptr;
+    HWND hRadioButtons[10] = {};
+};
+struct RenderState {
+    int alphaAtual = 0;
+    int contadorTimer = 0;
+    int indiceAlpha = 0;
+    int niveisAlpha[5] = { 25, 51, 76, 102, 127 };
+};
+struct LayoutState {
+    int L = 0;
+    int A = 0;
+    int buttonWidth = 0;
+    int buttonHeight = 0;
+    int gridX = 0;
+    int gridY = 0;
+    RECT exitRect = {};
+    RECT voltarRect = {};
+    RECT avancarRect = {};
+    RECT reguaXRect = {};
+    RECT reguaYRect = {};
+    RECT copiarRect = {};
+    RECT codigoFonteRect = {};
+    RECT ferramentasRects[8] = {};
+};
+struct GDIState {
+    HFONT hFontTitle   = nullptr;
+    HFONT hFontGrid    = nullptr;
+    HFONT hFontBtn     = nullptr;
+    HFONT hFontMsg     = nullptr;
+    HFONT hFontInfoMsg = nullptr;
+    HFONT hFontAutor   = nullptr;
+    HFONT hFontPulse   = nullptr;
+    HBRUSH hGridBrush  = nullptr;
+    HBRUSH hExitBrush  = nullptr;
+    HBRUSH hVoltarBrush= nullptr;
+    HBRUSH hAvancarBrush= nullptr;
+    HBRUSH hReguaBrush = nullptr;
+};
+inline GDIState gdi;
+inline AppState app;
+inline RenderState render;
+inline LayoutState layout;
+ 
+======================================= 
+===== idiomas.h 
+======================================= 
+ 
+
+//idiomas.h
+#pragma once
+#include <windows.h>
+extern const wchar_t* idiomas[7][8];
+extern const wchar_t* labelContinuar[7][8];
+extern const wchar_t* labelVoltar[7][8];
+extern const wchar_t* infoMensagem[7][8];
+extern const wchar_t* mensagens[7][8];
+ 
+======================================= 
+===== layout.h 
+======================================= 
+ 
+
+// layout.h
+#pragma once
+#include <windows.h>
+inline RECT RectPerc(float x1, float y1, float x2, float y2, int L, int A) {
+    return RECT{ (int)(L * x1), (int)(A * y1), (int)(L * x2), (int)(A * y2) };
+}
+void GetScreenResolution(HWND hwnd);
+void UpdateLayout();
+extern RECT copiarRect, reguaXRect, reguaYRect;
+extern RECT exitRect, voltarRect, avancarRect;
+extern RECT ferramentasRects[8];
+extern RECT codigoFonteRect;
+ 
+======================================= 
+===== paint.h 
+======================================= 
+ 
+
+//paint.h
+#pragma once
+#include <windows.h>
+void OnPaint(HWND hwnd);
+ 
+======================================= 
+===== regua.h 
+======================================= 
+ 
+
+// regua.h
+#pragma once
+#include <windows.h>
+int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal);
+void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal);
+ 
+======================================= 
+===== ui_constants.h 
+======================================= 
+ 
+
+// ui_constants.h
+#pragma once
+#include <windows.h>
+extern const wchar_t* const nomesFerramentas[8];
+extern const wchar_t* const tiposDescritivos[8];
+extern const wchar_t* const linguagens[10];
+ 
