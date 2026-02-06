@@ -3,8 +3,6 @@
 ===== app.cpp 
 ======================================= 
  
-
-//app.cpp
 #pragma execution_character_set("utf-8")
 #include "app.h"
 #include "ui_constants.h"
@@ -14,7 +12,7 @@
 #include "globals.h"
 
 std::wstring AddEntidade(int tipo, float xPerc, float yPerc) {
-    auto& a = app; // apelido para AppState
+    auto& a = app;
 
     Entidade e;
     e.xPerc = xPerc;
@@ -30,7 +28,7 @@ std::wstring AddEntidade(int tipo, float xPerc, float yPerc) {
 }
 
 int UpdateAlpha() {
-    auto& r = render; // apelido para RenderState
+    auto& r = render;
 
     r.contadorTimer++;
     if (r.contadorTimer >= 12) {
@@ -44,11 +42,11 @@ int UpdateAlpha() {
 }
 
 void CopiarCodigoClipboard(const std::vector<Entidade>& entidades) {
-    auto& a = app; // apelido para AppState
+    auto& a = app;
 
     wchar_t buffer[4096] = {};
     swprintf_s(buffer, 4096,
-               L"please code in %s pra sempre pegar ScreenRes\r\ne sempre use %% da tela to preserve layout\r\n\r\n",
+               L"please code in %s using these percentage\r\nbased value for positions, sizes, and font sizes\r\nso the code work correctly on all screen resolutions\r\n",
                linguagens[a.linguagemSelecionada]);
 
     for (size_t i = 0; i < entidades.size(); i++) {
@@ -57,7 +55,7 @@ void CopiarCodigoClipboard(const std::vector<Entidade>& entidades) {
         wchar_t letra = L'A' + (wchar_t)i;
 
         swprintf_s(linha, 512,
-                   L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%\r\n",
+                   L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%\r\nfont height 2%% da tela\r\n",
                    letra, tiposDescritivos[e.tipo],
                    e.xPerc, e.yPerc, e.wPerc, e.hPerc);
 
@@ -80,15 +78,13 @@ void CopiarCodigoClipboard(const std::vector<Entidade>& entidades) {
 ===== gdi.cpp 
 ======================================= 
  
-
-//gdi.cpp
 #include "gdi.h"
 #include "app.h"
 #include "globals.h"
 
 void CreateGDIResources() {
-    auto& g = gdi;     // apelido para GDIState
-    auto& l = layout;  // apelido para LayoutState
+    auto& g = gdi;
+    auto& l = layout;
 
     g.hFontTitle    = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, L"Arial");
     g.hFontGrid     = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, L"Segoe UI");
@@ -132,12 +128,10 @@ void DestroyGDIResources() {
 ===== layout.cpp 
 ======================================= 
  
-
-// layout.cpp
 #include "layout.h"
 #include "globals.h"
 void UpdateLayout() {
-    auto& l = layout; // apelido curto
+    auto& l = layout;
 
     l.codigoFonteRect = RectPerc(0.52f, 0.96f, 0.7f, 1.0f, l.L, l.A);
     l.exitRect        = RectPerc(0, 0, 0.09f, 0.08f, l.L, l.A);
@@ -188,20 +182,12 @@ void GetScreenResolution(HWND hwnd) {
 #include "idiomas.h"
 #include "ui_constants.h"
 
-// =======================================================
-// PROTÓTIPOS
-// =======================================================
-
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 void GetScreenResolution(HWND hwnd);
 void UpdateLayout();
 void CreateGDIResources();
 void CriarRadioButtons(HWND hwnd);
-
-// =======================================================
-// WINMAIN
-// =======================================================
 
 int WINAPI WinMain(
     HINSTANCE hInstance,
@@ -211,7 +197,6 @@ int WINAPI WinMain(
 ) {
     const wchar_t CLASS_NAME[] = L"Intuitio";
 
-    // 1) Registrar classe
     WNDCLASSW wc = {};
     wc.lpfnWndProc   = WindowProc;
     wc.hInstance     = hInstance;
@@ -227,7 +212,6 @@ int WINAPI WinMain(
         }
     }
 
-    // 2) Criar janela
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
@@ -253,11 +237,9 @@ int WINAPI WinMain(
         return 0;
     }
 
-    // 3) Mostrar janela (DIVISOR DE ÁGUAS)
     ShowWindow(app.hwnd, SW_SHOW);
     UpdateWindow(app.hwnd);
 
-    // 4) Agora o tamanho é REAL
     GetScreenResolution(app.hwnd);
 
     if (layout.L <= 0 || layout.A <= 0) {
@@ -265,14 +247,14 @@ int WINAPI WinMain(
         return 0;
     }
 
-    // 5) Inicializações dependentes do tamanho
+
     UpdateLayout();
     CreateGDIResources();
 
-    // 6) Timer (depois da janela existir)
+
     SetTimer(app.hwnd, 1, 500, NULL);
 
-    // 7) Loop de mensagens
+
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
@@ -282,9 +264,7 @@ int WINAPI WinMain(
     return 0;
 }
 
-// =======================================================
-// WINDOW PROC
-// =======================================================
+
 
 LRESULT CALLBACK WindowProc(
     HWND hwnd,
@@ -398,9 +378,7 @@ LRESULT CALLBACK WindowProc(
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
 
-// =======================================================
-// RADIO BUTTONS
-// =======================================================
+
 
 void CriarRadioButtons(HWND hwnd) {
     auto& l = layout;
@@ -444,8 +422,6 @@ void CriarRadioButtons(HWND hwnd) {
 ===== paint.cpp 
 ======================================= 
  
-
-//paint.cpp
 #pragma execution_character_set("utf-8")
 #include "idiomas.h"
 #include "ui_constants.h"
@@ -457,8 +433,8 @@ void CriarRadioButtons(HWND hwnd) {
 #include "globals.h"
 
 void OnPaint(HWND hwnd) {
-    auto& a = app;     // apelido para AppState
-    auto& l = layout;  // apelido para LayoutState
+    auto& a = app;
+    auto& l = layout;
 
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hwnd, &ps);
@@ -487,7 +463,7 @@ void OnPaint(HWND hwnd) {
 
         wchar_t fraseCompleta[256];
         swprintf_s(fraseCompleta, 256,
-                   L"please code in %s pra sempre pegar ScreenRes\r\ne sempre use %% da tela to preserve layout",
+                   L"%s selected",
                    linguagens[a.linguagemSelecionada]);
 
         SetTextColor(hdc, RGB(0, render.alphaAtual, 0));
@@ -503,7 +479,7 @@ void OnPaint(HWND hwnd) {
             const wchar_t* tipoNome = tiposDescritivos[e.tipo];
             wchar_t letra = L'A' + (wchar_t)i;
 
-            swprintf_s(buf, 512, L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%",
+            swprintf_s(buf, 512, L"%c %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%% letras 2%% da tela\r\n",
                        letra, tipoNome, e.xPerc, e.yPerc, e.wPerc, e.hPerc);
 
             RECT codeRect = RectPerc(0.2f, 0.15f + (offsetY / (float)l.A),
@@ -579,18 +555,15 @@ void OnPaint(HWND hwnd) {
 ===== regua.cpp 
 ======================================= 
  
-
-//regua.cpp
 #include "regua.h"
 #include "globals.h"
 
 int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal) {
     if (horizontal) {
         int largura = rect.right - rect.left;
-        if (largura <= 0) return 0; // Evita divis�o por zero
+        if (largura <= 0) return 0;
         int pos = pt.x - rect.left;
 
-        // Garante que o valor fique entre 0 e 100
         if (pos < 0) pos = 0;
         if (pos > largura) pos = largura;
 
@@ -608,25 +581,21 @@ int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal) {
 }
 
 void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
-    // 1. Preenche o fundo da r�gua
+
     FillRect(hdc, &rect, gdi.hReguaBrush);
 
-    // 2. Cria as canetas locais (Precisamos deletar elas no fim desta fun��o!)
-    HPEN hTickPen   = CreatePen(PS_SOLID, 1, RGB(200, 200, 200)); // Cinza para os tracinhos
-    HPEN hMarkerPen = CreatePen(PS_SOLID, 3, RGB(0, 255, 100));   // Verde para o marcador
+    HPEN hTickPen   = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
+    HPEN hMarkerPen = CreatePen(PS_SOLID, 3, RGB(0, 255, 100));
 
-    // 3. Seleciona a caneta de tracinhos e guarda a "caneta padr�o" que estava l� antes
-    // Isso � regra de ouro no Windows: "Quem entra, guarda o que estava l�"
     HGDIOBJ hOldPen = SelectObject(hdc, hTickPen);
 
     int start  = horizontal ? rect.left : rect.top;
     int end    = horizontal ? rect.right - 1 : rect.bottom - 1;
     int length = end - start;
 
-    // Desenha os tracinhos (Ticks)
     for (int i = 0; i <= 100; i += 5) {
         int pos = start + (int)((length * i) / 100.0f);
-        int tickSize = (i % 10 == 0) ? 12 : 6; // Tracinhos maiores a cada 10%
+        int tickSize = (i % 10 == 0) ? 12 : 6;
 
         if (horizontal) {
             MoveToEx(hdc, pos, rect.top, NULL);
@@ -637,7 +606,6 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
         }
     }
 
-    // 4. Desenha o marcador (o valor atual)
     SelectObject(hdc, hMarkerPen);
     int markerPos = start + (int)((length * valor) / 100.0f);
 
@@ -649,11 +617,8 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
         LineTo(hdc, rect.right, markerPos);
     }
 
-    // 5. LIMPEZA OBRIGAT�RIA (O "Verniz")
-    // Primeiro, voltamos com a caneta original do Windows
     SelectObject(hdc, hOldPen);
 
-    // Agora, deletamos as canetas que criamos para n�o entupir a mem�ria
     DeleteObject(hTickPen);
     DeleteObject(hMarkerPen);
 }
@@ -662,8 +627,6 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
 ===== textos.cpp 
 ======================================= 
  
-
-//textos.cpp
 #include "idiomas.h"
 #include "globals.h"
 
@@ -816,8 +779,6 @@ L"ਸਕ੍ਰੀਨ 'ਤੇ ਵਸਤੂਆਂ ਦਾ ਆਕਾਰ ਬਦਲੋ
 ===== traducoes_menores.cpp 
 ======================================= 
  
-
-//traducoes_menores.cpp
 #include "idiomas.h"
 #include "globals.h"
 const wchar_t* idiomas[7][8] = {
@@ -852,26 +813,37 @@ const wchar_t* labelVoltar[7][8] = {
 ===== ui_constants.cpp 
 ======================================= 
  
-
-// ui_constants.cpp
 #pragma execution_character_set("utf-8")
 #include "ui_constants.h"
-const wchar_t* const nomesFerramentas[8] = {L"B", L"TF", L"TL", L"C", L"R", L"DM", L"I", L"T"};
+const wchar_t* const nomesFerramentas[8] = {L"B", L"L", L"TB", L"CB", L"RB", L"CB", L"I", L"T"};
 const wchar_t* const tiposDescritivos[8] = {
-    L"BOTAO", L"TEXTO_FIXO", L"TEXTO_LIVRE", L"CHECKLIST",
-    L"RADIO", L"DROPDOWN", L"IMAGEM", L"TABELA"
+    L"BUTTON",
+    L"LABEL",
+    L"TEXTBOX",
+    L"CHECKBOX",
+    L"RADIOBUTTON",
+    L"COMBOBOX",
+    L"IMAGE",
+    L"TABLE"
 };
+
 const wchar_t* const linguagens[10] = {
-    L"C", L"C++", L"C#", L"Java", L"Java Script",
-    L"Python", L"Visual Basic", L"SQL", L"Delphi/obj Pascal", L"R"
+    L"C",
+    L"C++",
+    L"C#",
+    L"Java",
+    L"JavaScript",
+    L"Python",
+    L"VisualBasic",
+    L"Rust",
+    L"Delphi",
+    L"R"
 };
  
 ======================================= 
 ===== app.h 
 ======================================= 
  
-
-// app.h
 #pragma once
 #include <vector>
 #include <string>
@@ -887,8 +859,6 @@ void GerarCodigo(const Entidade& e, wchar_t* buf, size_t bufSize);
 ===== gdi.h 
 ======================================= 
  
-
-// gdi.h
 #pragma once
 #include <windows.h>
 void CreateGDIResources();
@@ -898,8 +868,6 @@ void DestroyGDIResources();
 ===== globals.h 
 ======================================= 
  
-
-//globals.h
 #pragma once
 #include <windows.h>
 #include <vector>
@@ -968,8 +936,6 @@ inline LayoutState layout;
 ===== idiomas.h 
 ======================================= 
  
-
-//idiomas.h
 #pragma once
 #include <windows.h>
 extern const wchar_t* idiomas[7][8];
@@ -982,8 +948,6 @@ extern const wchar_t* mensagens[7][8];
 ===== layout.h 
 ======================================= 
  
-
-// layout.h
 #pragma once
 #include <windows.h>
 inline RECT RectPerc(float x1, float y1, float x2, float y2, int L, int A) {
@@ -1000,8 +964,6 @@ extern RECT codigoFonteRect;
 ===== paint.h 
 ======================================= 
  
-
-//paint.h
 #pragma once
 #include <windows.h>
 void OnPaint(HWND hwnd);
@@ -1010,8 +972,6 @@ void OnPaint(HWND hwnd);
 ===== regua.h 
 ======================================= 
  
-
-// regua.h
 #pragma once
 #include <windows.h>
 int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal);
@@ -1021,8 +981,6 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal);
 ===== ui_constants.h 
 ======================================= 
  
-
-// ui_constants.h
 #pragma once
 #include <windows.h>
 extern const wchar_t* const nomesFerramentas[8];
