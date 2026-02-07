@@ -3,29 +3,19 @@
 ===== app.cpp 
 ======================================= 
  
+// note for I.A.
+// app.cpp is the TRUE house of the functions:
+// - CopiarCodigoClipboard()
+// DO NOT implement them anywhere else!
+
 #pragma execution_character_set("utf-8")
 #include "app.h"
-#include "ui_constants.h"
-#include <math.h>
-#include <wchar.h>
-#include <stdio.h>
 #include "globals.h"
-
-std::wstring AddEntidade(int tipo, float xPerc, float yPerc) {
-    auto& a = app;
-
-    Entidade e;
-    e.xPerc = xPerc;
-    e.yPerc = yPerc;
-    e.wPerc = 10.0f;
-    e.hPerc = 5.0f;
-    e.tipo  = tipo;
-
-    swprintf_s(e.texto, 128, L"%c", L'A' + (int)a.entidades.size());
-    a.entidades.push_back(e);
-
-    return L"";
-}
+#include "ui_constants.h"
+#include "idiomas.h"
+#include <windows.h>
+#include <wchar.h>
+#include <vector>
 
 int UpdateAlpha() {
     auto& r = render;
@@ -34,44 +24,91 @@ int UpdateAlpha() {
     if (r.contadorTimer >= 12) {
         r.contadorTimer = 0;
         r.indiceAlpha++;
-        if (r.indiceAlpha >= 5) {
+        if (r.indiceAlpha >= 5)
             r.indiceAlpha = 0;
-        }
     }
+
     return r.niveisAlpha[r.indiceAlpha];
 }
 
-void CopiarCodigoClipboard(const std::vector<Entidade>& entidades) {
+void GerarCodigo(
+    const Entidade& e,
+    wchar_t* buf,
+    size_t bufSize
+) {
+    swprintf_s(
+        buf,
+        bufSize,
+        L"%s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%",
+        tiposDescritivos[e.tipo],
+        e.Eleft,
+        e.Eup,
+        e.Eright - e.Eleft,
+        e.Edown - e.Eup
+    );
+}
+
+void CopiarCodigoClipboard(
+    const std::vector<Entidade>& entidades
+) {
     auto& a = app;
 
     wchar_t buffer[4096] = {};
-    swprintf_s(buffer, 4096,
-               L"please code in %s using these percentage\r\nbased value for positions, sizes, and font sizes\r\nso the code work correctly on all screen resolutions\r\n",
-               linguagens[a.linguagemSelecionada]);
+
+swprintf_s(
+    buffer,
+    4096,
+    L"%s\r\n\r\n",
+    resolucao[a.linguagemSelecionada]
+);
+
 
     for (size_t i = 0; i < entidades.size(); i++) {
         const auto& e = entidades[i];
+
         wchar_t linha[512];
         wchar_t letra = L'A' + (wchar_t)i;
 
-        swprintf_s(linha, 512,
-                   L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%\r\nfont height 2%% da tela\r\n",
-                   letra, tiposDescritivos[e.tipo],
-                   e.xPerc, e.yPerc, e.wPerc, e.hPerc);
+        swprintf_s(
+            linha,
+            512,
+            L"sendo %c um %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%%\r\n"
+            L"font height 2%% da tela\r\n\r\n",
+            letra,
+            tiposDescritivos[e.tipo],
+            e.Eleft,
+            e.Eup,
+            e.Eright - e.Eleft,
+            e.Edown - e.Eup
+        );
 
         wcscat_s(buffer, linha);
     }
 
-    if (OpenClipboard(NULL)) {
-        EmptyClipboard();
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (wcslen(buffer) + 1) * sizeof(wchar_t));
-        LPWSTR pMem  = (LPWSTR)GlobalLock(hMem);
+    if (!OpenClipboard(nullptr))
+        return;
+
+    EmptyClipboard();
+
+    size_t sizeBytes = (wcslen(buffer) + 1) * sizeof(wchar_t);
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, sizeBytes);
+
+    if (hMem) {
+        LPWSTR pMem = (LPWSTR)GlobalLock(hMem);
         wcscpy_s(pMem, wcslen(buffer) + 1, buffer);
         GlobalUnlock(hMem);
         SetClipboardData(CF_UNICODETEXT, hMem);
-        CloseClipboard();
-        MessageBoxW(app.hwnd, L"Pronto. Cole ele aonde quiser!", L"Intuitio", MB_OK | MB_ICONINFORMATION);
     }
+
+    CloseClipboard();
+
+    MessageBoxW(
+    app.hwnd,
+    MessageOfCopy[app.idiomaAtualRow][app.idiomaAtualCol],
+    L"Intuitio",
+    MB_OK | MB_ICONINFORMATION
+    );
+
 }
  
 ======================================= 
@@ -128,6 +165,12 @@ void DestroyGDIResources() {
 ===== layout.cpp 
 ======================================= 
  
+// note for I.A.
+// layout.cpp is the TRUE house of the functions:
+// - UpdateLayout()
+// - GetScreenResolution()
+// DO NOT implement them anywhere else!
+
 #include "layout.h"
 #include "globals.h"
 void UpdateLayout() {
@@ -165,135 +208,127 @@ void GetScreenResolution(HWND hwnd) {
 }
  
 ======================================= 
+===== coords.cpp 
+======================================= 
+ 
+#include "coords.h"
+#include <algorithm>
+
+// Full screen normalized mapping (always 0..1)
+CCMapTela GetCCMapTela() {
+    return {
+        0.0f, // mapYStart
+        1.0f, // mapYEnd
+        0.0f, // mapXStart
+        1.0f  // mapXEnd
+    };
+}
+
+// Design area mapping inside the screen
+// margemPerc represents the percentage excluded from the top/left
+CCMapDesign GetCCMapDesign(float margemPerc) {
+    float m = std::clamp(margemPerc, 0.0f, 0.9f);
+
+    return {
+        m,    // upDA
+        1.0f, // downDA
+        m,    // leftDA
+        1.0f  // rightDA
+    };
+}
+
+// Convert pixel X to logical design percentage (0..100)
+float PixelToDesignX(
+    int px,
+    const CCMapDesign& da,
+    int screenW
+) {
+    if (screenW <= 0) return 0.0f;
+
+    float nx = px / (float)screenW;
+    float v  = (nx - da.leftDA) / (da.rightDA - da.leftDA);
+
+    return std::clamp(v * 100.0f, 0.0f, 100.0f);
+}
+
+// Convert pixel Y to logical design percentage (0..100)
+float PixelToDesignY(
+    int py,
+    const CCMapDesign& da,
+    int screenH
+) {
+    if (screenH <= 0) return 0.0f;
+
+    float ny = py / (float)screenH;
+    float v  = (ny - da.upDA) / (da.downDA - da.upDA);
+
+    return std::clamp(v * 100.0f, 0.0f, 100.0f);
+}
+
+// Convert logical entity (percentages) to pixel RECT (render-only)
+RECT EntidadeToRect(
+    const Entidade& e,
+    const CCMapDesign& da,
+    int screenW,
+    int screenH
+) {
+    float dx = da.rightDA - da.leftDA;
+    float dy = da.downDA  - da.upDA;
+
+    float x1 = da.leftDA + dx * (e.Eleft  / 100.0f);
+    float x2 = da.leftDA + dx * (e.Eright / 100.0f);
+    float y1 = da.upDA   + dy * (e.Eup    / 100.0f);
+    float y2 = da.upDA   + dy * (e.Edown  / 100.0f);
+
+    RECT r;
+    r.left   = (int)(x1 * screenW);
+    r.right  = (int)(x2 * screenW);
+    r.top    = (int)(y1 * screenH);
+    r.bottom = (int)(y2 * screenH);
+
+    return r;
+}
+ 
+======================================= 
 ===== main.cpp 
 ======================================= 
  
-﻿#define UNICODE
+﻿// note for I.A.
+// main.cpp is the TRUE house of:
+// - WindowProc()
+// - WinMain()
+// This file should NOT contain duplicated layout, regua or clipboard functions.
+
+#define UNICODE
 #define _UNICODE
-
 #include <windows.h>
-
+#include <wchar.h>
+#include <vector>
 #include "globals.h"
-#include "app.h"
-#include "layout.h"
-#include "regua.h"
-#include "paint.h"
-#include "gdi.h"
-#include "idiomas.h"
-#include "ui_constants.h"
+#include "coords.h"
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "gdi32.lib")
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+struct Layout {
+    int L, A;
+    RECT exitRect;
+    RECT reguaXRect, reguaYRect, copiarRect;
+    RECT avancarRect, voltarRect;
+    RECT ferramentasRects[8];
+    int gridX, gridY, buttonWidth, buttonHeight;
+};
 
-void GetScreenResolution(HWND hwnd);
-void UpdateLayout();
-void CreateGDIResources();
-void CriarRadioButtons(HWND hwnd);
-
-int WINAPI WinMain(
-    HINSTANCE hInstance,
-    HINSTANCE,
-    LPSTR,
-    int
-) {
-    const wchar_t CLASS_NAME[] = L"Intuitio";
-
-    WNDCLASSW wc = {};
-    wc.lpfnWndProc   = WindowProc;
-    wc.hInstance     = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-    wc.style         = CS_HREDRAW | CS_VREDRAW;
-
-    if (!RegisterClassW(&wc)) {
-        DWORD err = GetLastError();
-        if (err != ERROR_CLASS_ALREADY_EXISTS) {
-            MessageBoxW(NULL, L"RegisterClass falhou", L"ERRO", MB_OK);
-            return 0;
-        }
-    }
-
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-
-    app.hwnd = CreateWindowExW(
-        0,
-        CLASS_NAME,
-        L"Intuitio",
-        WS_POPUP,
-        0, 0,
-        screenW,
-        screenH,
-        NULL,
-        NULL,
-        hInstance,
-        NULL
-    );
-
-    if (!app.hwnd) {
-        DWORD err = GetLastError();
-        wchar_t buf[256];
-        wsprintfW(buf, L"CreateWindowEx falhou\nErro = %lu", err);
-        MessageBoxW(NULL, buf, L"ERRO", MB_OK);
-        return 0;
-    }
-
-    ShowWindow(app.hwnd, SW_SHOW);
-    UpdateWindow(app.hwnd);
-
-    GetScreenResolution(app.hwnd);
-
-    if (layout.L <= 0 || layout.A <= 0) {
-        MessageBoxW(NULL, L"Client area inválida", L"ERRO", MB_OK);
-        return 0;
-    }
-
-
-    UpdateLayout();
-    CreateGDIResources();
-
-
-    SetTimer(app.hwnd, 1, 500, NULL);
-
-
-    MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-
-    return 0;
-}
-
-
-
-LRESULT CALLBACK WindowProc(
-    HWND hwnd,
-    UINT uMsg,
-    WPARAM wParam,
-    LPARAM lParam
-) {
-    auto& a = app;
-    auto& l = layout;
-    auto& r = render;
-
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
-
     case WM_CREATE:
-        a.hwnd = hwnd;
+        app.hwnd = hwnd;
+        GetScreenResolution(hwnd);
+        UpdateLayout();
+        SetTimer(hwnd, 1, 500, nullptr);
         return 0;
-
-    case WM_COMMAND: {
-        int wmId = LOWORD(wParam);
-        if (wmId >= 1000 && wmId < 1010)
-            a.linguagemSelecionada = wmId - 1000;
-        return 0;
-    }
 
     case WM_TIMER:
-        if (a.telaRegua) {
-            r.alphaAtual = UpdateAlpha();
-            InvalidateRect(hwnd, NULL, FALSE);
-        }
+        InvalidateRect(hwnd, nullptr, TRUE);
         return 0;
 
     case WM_PAINT:
@@ -303,70 +338,88 @@ LRESULT CALLBACK WindowProc(
     case WM_LBUTTONDOWN: {
         POINT pt = { LOWORD(lParam), HIWORD(lParam) };
 
-        if (PtInRect(&l.exitRect, pt)) {
+        // Botão X
+        if (PtInRect(&layout.exitRect, pt)) {
             DestroyWindow(hwnd);
             return 0;
         }
 
-        if (a.telaRegua) {
-
-            if (PtInRect(&l.reguaXRect, pt))
-                a.valorX = GetReguaValorFromClick(pt, l.reguaXRect, true);
-
-            if (PtInRect(&l.reguaYRect, pt))
-                a.valorY = GetReguaValorFromClick(pt, l.reguaYRect, false);
-
-            if (PtInRect(&l.copiarRect, pt))
-                CopiarCodigoClipboard(a.entidades);
-
-            for (int i = 0; i < 8; i++) {
-                if (PtInRect(&l.ferramentasRects[i], pt)) {
-
-                    float novoX = (float)a.valorX;
-                    float novoY = (float)a.valorY;
-
-                    if (novoX < 10.0f) novoX = 10.0f;
-                    if (novoY < 10.0f) novoY = 10.0f;
-                    if (novoX > 90.0f) novoX = 90.0f;
-                    if (novoY > 90.0f) novoY = 90.0f;
-
-                    Entidade e{ novoX, novoY, 10.0f, 5.0f, {}, i };
-                    swprintf_s(e.texto, 128, L"%c",
-                        L'A' + (int)a.entidades.size());
-
-                    a.entidades.push_back(e);
-                }
+        if (app.telaRegua) {
+            // Régua X
+            if (PtInRect(&layout.reguaXRect, pt)) {
+                app.valorX = (int)GetReguaValorFromClick(pt, layout.reguaXRect, true);
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
             }
-        }
-        else if (a.idiomaSelecionado) {
+            // Régua Y
+            if (PtInRect(&layout.reguaYRect, pt)) {
+                app.valorY = (int)GetReguaValorFromClick(pt, layout.reguaYRect, false);
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            // Copiar
+            if (PtInRect(&layout.copiarRect, pt)) {
+                CopiarCodigoClipboard(app.entidades);
+                return 0;
+            }
+for (int i = 0; i < 8; i++) {
+    if (PtInRect(&layout.ferramentasRects[i], pt)) {
+        CCMapDesign da = GetCCMapDesign(0.10f);
+        float xDesign = (float)app.valorX;
+        float yDesign = (float)app.valorY;
 
-            if (PtInRect(&l.avancarRect, pt)) {
-                a.telaRegua = true;
+        Entidade e = {};
+        e.tipo = i;
+        e.Eleft  = xDesign - 10;
+        e.Eright = xDesign + 10;
+        e.Eup    = yDesign - 5;
+        e.Edown  = yDesign + 5;
+
+        swprintf_s(e.texto, 128, L"%c", L'A' + (int)app.entidades.size());
+
+        app.entidades.push_back(e);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+}
+
+        } else if (app.idiomaSelecionado) {
+            if (PtInRect(&layout.avancarRect, pt)) {
+                app.telaRegua = true;
+                app.idiomaSelecionado = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
             }
-            else if (PtInRect(&l.voltarRect, pt)) {
-                a.idiomaSelecionado = false;
-            }
-        }
-        else {
+        } else {
             for (int row = 0; row < 7; row++) {
                 for (int col = 0; col < 8; col++) {
-                    int x = l.gridX + col * l.buttonWidth;
-                    int y = l.gridY + row * l.buttonHeight;
-                    RECT btnRect = { x, y,
-                        x + l.buttonWidth,
-                        y + l.buttonHeight };
-
-                    if (PtInRect(&btnRect, pt)) {
-                        a.idiomaAtualRow = row;
-                        a.idiomaAtualCol = col;
-                        a.idiomaSelecionado = true;
-                        CriarRadioButtons(hwnd);
+                    RECT r = {
+                        layout.gridX + col * layout.buttonWidth,
+                        layout.gridY + row * layout.buttonHeight,
+                        layout.gridX + (col + 1) * layout.buttonWidth,
+                        layout.gridY + (row + 1) * layout.buttonHeight
+                    };
+                    if (PtInRect(&r, pt)) {
+                        app.idiomaAtualRow = row;
+                        app.idiomaAtualCol = col;
+                        app.idiomaSelecionado = true;
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
                     }
                 }
             }
         }
-
-        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+    case WM_COMMAND: {
+        switch (LOWORD(wParam)) {
+        case 1001:
+            MessageBoxW(hwnd, L"Remover entidade", L"Menu", MB_OK);
+            break;
+        case 1002:
+            MessageBoxW(hwnd, L"Dimensionar entidade", L"Menu", MB_OK);
+            break;
+        }
         return 0;
     }
 
@@ -378,175 +431,152 @@ LRESULT CALLBACK WindowProc(
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
 
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    const wchar_t CLASS_NAME[] = L"Intuitio";
 
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
 
-void CriarRadioButtons(HWND hwnd) {
-    auto& l = layout;
-    auto& a = app;
+    RegisterClassW(&wc);
 
-    int radioY       = l.gridY + 7 * l.buttonHeight + 10;
-    int espacamentoX = (int)(l.buttonWidth * 0.8f);
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
 
-    for (int i = 0; i < 10; i++) {
-        if (a.hRadioButtons[i]) continue;
+    app.hwnd = CreateWindowExW(
+        0, CLASS_NAME, L"Intuitio",
+        WS_POPUP | WS_VISIBLE,
+        0, 0, screenW, screenH,
+        nullptr, nullptr, hInstance, nullptr
+    );
 
-        int x = l.gridX + (i * espacamentoX);
+    if (!app.hwnd) return 0;
 
-        a.hRadioButtons[i] = CreateWindowExW(
-            0,
-            L"BUTTON",
-            linguagens[i],
-            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-            x, radioY,
-            (int)(l.buttonWidth * 0.7f),
-            30,
-            hwnd,
-            (HMENU)(1000 + i),
-            GetModuleHandle(NULL),
-            NULL
-        );
+    ShowWindow(app.hwnd, SW_SHOW);
+    UpdateWindow(app.hwnd);
 
-        SendMessageW(
-            a.hRadioButtons[i],
-            WM_SETFONT,
-            (WPARAM)GetStockObject(DEFAULT_GUI_FONT),
-            TRUE
-        );
+    GetScreenResolution(app.hwnd);
+    if (layout.L <= 0 || layout.A <= 0) return 0;
+
+    UpdateLayout();
+
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
     }
 
-    SendMessageW(a.hRadioButtons[0], BM_SETCHECK, BST_CHECKED, 0);
-    a.linguagemSelecionada = 0;
+    return 0;
 }
  
 ======================================= 
 ===== paint.cpp 
 ======================================= 
  
+// note for I.A.
+// paint.cpp is the TRUE house of drawing functions:
+// - OnPaint()
+// - EntidadeToRect()
+// - Fun��es auxiliares de desenho
+// DO NOT reimplement layout, regua or clipboard functions here!
+
 #pragma execution_character_set("utf-8")
-#include "idiomas.h"
-#include "ui_constants.h"
-#include "app.h"
-#include "paint.h"
-#include "layout.h"
-#include "gdi.h"
-#include "regua.h"
+#include <windows.h>
+#include <wchar.h>
 #include "globals.h"
+#include "coords.h"
+#include "ui_constants.h"
+#include "idiomas.h"
 
 void OnPaint(HWND hwnd) {
-    auto& a = app;
-    auto& l = layout;
-
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hwnd, &ps);
 
-    if (a.telaRegua) {
-        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SetBkMode(hdc, TRANSPARENT);
+    // Fundo preto
+    RECT clientRect;
+    GetClientRect(hwnd, &clientRect);
+    FillRect(hdc, &clientRect, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    SetBkMode(hdc, TRANSPARENT);
 
-        for (const auto& e : a.entidades) {
-            float startX = 0.10f * l.L;
-            float startY = 0.10f * l.A;
-            float areaUtilW = l.L - startX;
-            float areaUtilH = l.A - startY;
+    if (app.telaRegua) {
+        // R�guas simples
+        Rectangle(hdc, layout.reguaXRect.left, layout.reguaXRect.top,
+                  layout.reguaXRect.right, layout.reguaXRect.bottom);
+        Rectangle(hdc, layout.reguaYRect.left, layout.reguaYRect.top,
+                  layout.reguaYRect.right, layout.reguaYRect.bottom);
 
-            int xReal = (int)(startX + (e.xPerc * areaUtilW / 100.0f));
-            int yReal = (int)(startY + (e.yPerc * areaUtilH / 100.0f));
-            int wReal = (int)(e.wPerc * areaUtilW / 100.0f);
-            int hReal = (int)(e.hPerc * areaUtilH / 100.0f);
+        // Marcadores X/Y
+        wchar_t buf[32];
+        wsprintfW(buf, L"%d", i);
+        SetTextColor(hdc, RGB(0, 255, 0));
+        TextOutW(hdc, layout.reguaXRect.left + 10, layout.reguaXRect.top + 5, buf, wcslen(buf));
 
-            RECT r = { xReal, yReal, xReal + wReal, yReal + hReal };
-            FillRect(hdc, &r, (HBRUSH)GetStockObject(WHITE_BRUSH));
-            FrameRect(hdc, &r, (HBRUSH)GetStockObject(WHITE_BRUSH));
-            DrawTextW(hdc, e.texto, -1, &r,
-                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
+        swprintf_s(buf, L"Y:%d%%", app.valorY);
+        TextOutW(hdc, layout.reguaYRect.left + 10, layout.reguaYRect.top + 5, buf, wcslen(buf));
 
-        wchar_t fraseCompleta[256];
-        swprintf_s(fraseCompleta, 256,
-                   L"%s selected",
-                   linguagens[a.linguagemSelecionada]);
-
-        SetTextColor(hdc, RGB(0, render.alphaAtual, 0));
-        SelectObject(hdc, gdi.hFontPulse);
-
-        RECT titleRect = RectPerc(0.1f, 0.05f, 0.9f, 0.2f, l.L, l.A);
-        DrawTextW(hdc, fraseCompleta, -1, &titleRect, DT_CENTER | DT_WORDBREAK);
-
-        int offsetY = 0;
-        for (size_t i = 0; i < a.entidades.size(); i++) {
-            const auto& e = a.entidades[i];
-            wchar_t buf[512];
-            const wchar_t* tipoNome = tiposDescritivos[e.tipo];
-            wchar_t letra = L'A' + (wchar_t)i;
-
-            swprintf_s(buf, 512, L"%c %s X:%.0f%% Y:%.0f%% W:%.0f%% H:%.0f%% letras 2%% da tela\r\n",
-                       letra, tipoNome, e.xPerc, e.yPerc, e.wPerc, e.hPerc);
-
-            RECT codeRect = RectPerc(0.2f, 0.15f + (offsetY / (float)l.A),
-                                     0.8f, 0.20f + (offsetY / (float)l.A), l.L, l.A);
-
-            SetTextColor(hdc, RGB(0, render.alphaAtual, 0));
-            SelectObject(hdc, gdi.hFontPulse);
-            DrawTextW(hdc, buf, -1, &codeRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-            offsetY += (int)(l.A * 0.05f);
-        }
-
-        DrawRegua(hdc, a.valorX, l.reguaXRect, true);
-        DrawRegua(hdc, a.valorY, l.reguaYRect, false);
-
+        // Ferramentas 0-7
         for (int i = 0; i < 8; i++) {
-            FillRect(hdc, &l.ferramentasRects[i], gdi.hAvancarBrush);
-            DrawTextW(hdc, nomesFerramentas[i], -1, &l.ferramentasRects[i],
-                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            RECT r = layout.ferramentasRects[i];
+            HBRUSH brush = CreateSolidBrush(RGB(50, 150, 50));
+            FillRect(hdc, &r, brush);
+            DeleteObject(brush);
+
+            swprintf_s(buf, L"%d", i);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            DrawTextW(hdc, buf, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
 
-        FillRect(hdc, &l.copiarRect, gdi.hVoltarBrush);
-        DrawTextW(hdc, L"COPY CODE", -1, &l.copiarRect,
-                  DT_CENTER | DT_VCENTER | DT_WORDBREAK);
-    }
-    else if (a.idiomaSelecionado) {
-        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SelectObject(hdc, gdi.hFontMsg);
-        SetTextColor(hdc, RGB(0, 255, 120));
-
-        RECT msgRect = RectPerc(0.1, 0.03, 0.9, 0.25, l.L, l.A);
-        DrawTextW(hdc, mensagens[a.idiomaAtualRow][a.idiomaAtualCol], -1, &msgRect,
-                  DT_CENTER | DT_WORDBREAK);
-
-        FillRect(hdc, &l.voltarRect, gdi.hVoltarBrush);
-        FillRect(hdc, &l.avancarRect, gdi.hAvancarBrush);
-
+        // Bot�o COPIAR (posi��o fixa)
+        layout.copiarRect = {10, layout.reguaXRect.bottom + 10, 120, layout.reguaXRect.bottom + 40};
+        Rectangle(hdc, layout.copiarRect.left, layout.copiarRect.top,
+                  layout.copiarRect.right, layout.copiarRect.bottom);
         SetTextColor(hdc, RGB(255, 255, 255));
-        DrawTextW(hdc, labelVoltar[a.idiomaAtualRow][a.idiomaAtualCol], -1, &l.voltarRect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        DrawTextW(hdc, labelContinuar[a.idiomaAtualRow][a.idiomaAtualCol], -1, &l.avancarRect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    }
-    else {
-        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SelectObject(hdc, gdi.hFontTitle);
-        SetTextColor(hdc, RGB(0, 200, 50));
+        DrawTextW(hdc, L"COPIAR", -1, &layout.copiarRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        RECT titleRect = RectPerc(0, 0.05, 1, 0.25, l.L, l.A);
-        DrawTextW(hdc, L"Intuitio et Per Centum", -1, &titleRect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        // �REA DE DESIGN (10% margem)
+        CCMapDesign da = GetCCMapDesign(0.10f);
+        RECT designRect;
+        designRect.left   = (int)(da.leftDA  * layout.L);
+        designRect.right  = (int)(da.rightDA * layout.L);
+        designRect.top    = (int)(da.upDA    * layout.A);
+        designRect.bottom = (int)(da.downDA  * layout.A);
 
+        // Entidades desenhadas
+        for (const auto& e : app.entidades) {
+            RECT r = EntidadeToRect(e, da, layout.L, layout.A);
+            HBRUSH brush = CreateSolidBrush(RGB(100, 255, 100));
+            FillRect(hdc, &r, brush);
+            DeleteObject(brush);
+
+            SetTextColor(hdc, RGB(0, 0, 0));
+            DrawTextW(hdc, e.texto, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+    } else {
+        // Grid 7x8 idiomas
+        SetTextColor(hdc, RGB(255, 255, 255));
         for (int row = 0; row < 7; row++) {
             for (int col = 0; col < 8; col++) {
-                int x = l.gridX + col * l.buttonWidth;
-                int y = l.gridY + row * l.buttonHeight;
-                RECT btnRect = { x + 5, y + 5, x + l.buttonWidth - 5, y + l.buttonHeight - 5 };
+                RECT r = {
+                    layout.gridX + col * layout.buttonWidth,
+                    layout.gridY + row * layout.buttonHeight,
+                    layout.gridX + (col + 1) * layout.buttonWidth,
+                    layout.gridY + (row + 1) * layout.buttonHeight
+                };
 
-                FillRect(hdc, &btnRect, gdi.hGridBrush);
-                DrawTextW(hdc, idiomas[row][col], -1, &btnRect,
-                          DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                if (idiomas[row][col]) {
+                    DrawTextW(hdc, idiomas[row][col], -1, &r,
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
             }
         }
+        RECT avancar = { layout.L/2 - 100, layout.A - 80, layout.L/2, layout.A - 40 };
+        Rectangle(hdc, avancar.left, avancar.top, avancar.right, avancar.bottom);
+        DrawTextW(hdc, L"AVANCAR", -1, &avancar, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
-
-    FillRect(hdc, &l.exitRect, gdi.hExitBrush);
-    DrawTextW(hdc, L"X", -1, &l.exitRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     EndPaint(hwnd, &ps);
 }
@@ -555,33 +585,35 @@ void OnPaint(HWND hwnd) {
 ===== regua.cpp 
 ======================================= 
  
+// note for I.A.
+// regua.cpp is the TRUE house of the functions:
+// - GetReguaValorFromClick()
+// DO NOT implement them anywhere else!
+
 #include "regua.h"
 #include "globals.h"
+#include <algorithm>
 
-int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal) {
+float GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal) {
+    int start, length, pos;
+
     if (horizontal) {
-        int largura = rect.right - rect.left;
-        if (largura <= 0) return 0;
-        int pos = pt.x - rect.left;
-
-        if (pos < 0) pos = 0;
-        if (pos > largura) pos = largura;
-
-        return (pos * 100) / largura;
+        start  = rect.left;
+        length = rect.right - rect.left;
+        pos    = pt.x;
     } else {
-        int altura = rect.bottom - rect.top;
-        if (altura <= 0) return 0;
-        int pos = pt.y - rect.top;
-
-        if (pos < 0) pos = 0;
-        if (pos > altura) pos = altura;
-
-        return (pos * 100) / altura;
+        start  = rect.top;
+        length = rect.bottom - rect.top;
+        pos    = pt.y;
     }
+
+    if (length <= 0) return 0.0f;
+
+    float perc = (pos - start) / (float)length;
+    return std::clamp(perc, 0.0f, 1.0f);
 }
 
 void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
-
     FillRect(hdc, &rect, gdi.hReguaBrush);
 
     HPEN hTickPen   = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
@@ -589,13 +621,18 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
 
     HGDIOBJ hOldPen = SelectObject(hdc, hTickPen);
 
-    int start  = horizontal ? rect.left : rect.top;
-    int end    = horizontal ? rect.right - 1 : rect.bottom - 1;
-    int length = end - start;
+    int start, length;
+    if (horizontal) {
+        start  = rect.left;
+        length = rect.right - rect.left;
+    } else {
+        start  = rect.top;
+        length = rect.bottom - rect.top;
+    }
 
-    for (int i = 0; i <= 100; i += 5) {
-        int pos = start + (int)((length * i) / 100.0f);
-        int tickSize = (i % 10 == 0) ? 12 : 6;
+    int tickSize = 5;
+    for (int i = 0; i <= 10; i++) {
+        int pos = start + (int)((length * i) / 10.0f);
 
         if (horizontal) {
             MoveToEx(hdc, pos, rect.top, NULL);
@@ -808,6 +845,108 @@ const wchar_t* labelVoltar[7][8] = {
     {L"Nyuma", L"Артқа", L"Orqaga", L"Geri", L"უკან", L"Հետ", L"Назад", L"Буцах"},
     {L"వెనుకకు", L"मागे", L"பின்னால்", L"واپس", L"ಹಿಂದಕ್ಕೆ", L"પાછા", L"തിരികെ", L"ਪਿੱਛੇ"}
 };
+const wchar_t* Developer[7][8] = {
+    {L"作者：佛教徒。不需要任何回报。免费软件，开源。祝你快乐，兄弟。",
+     L"लेखक: बौद्ध। मुझे कुछ नहीं चाहिए। यह मुफ्त और ओपन सोर्स है। खुश रहो, भाई।",
+     L"author: buddhist. I want nothing. freeware. open source. be happy, brother.",
+     L"المؤلف: بوذي. لا أريد شيئًا. برنامج مجاني ومفتوح المصدر. كن سعيدًا يا أخي.",
+     L"autor: budista. não quero nada não. é freeware. é opensource. seja feliz, irmão.",
+     L"লেখক: বৌদ্ধ। আমি কিছুই চাই না। এটি ফ্রি এবং ওপেন সোর্স। সুখী থাকুন, ভাই।",
+     L"szerző: buddhista. nem kérek semmit. ingyenes és nyílt forráskódú. légy boldog, testvér.",
+     L"autor: buddhista. nic nechci. freeware a open-source. buď šťastný, bratře."},
+
+    {L"автор: буддист. мне ничего не нужно. бесплатно и с открытым кодом. будь счастлив, брат.",
+     L"作者：仏教徒。何もいりません。フリーでオープンソースです。幸せでいてください。",
+     L"작성자: 불교도. 아무것도 바라지 않습니다. 무료 오픈소스입니다. 행복하세요, 형제여.",
+     L"Autor: Buddhist. Ich will nichts. Freeware, Open Source. Sei glücklich, Bruder.",
+     L"auteur : bouddhiste. je ne veux rien. freeware et open source. sois heureux, frère.",
+     L"autore: buddista. non voglio nulla. freeware e open source. sii felice, fratello.",
+     L"autor: budhista. nič nechcem. freeware a open-source. buď šťastný, brat.",
+     L"автор: будист. не искам нищо. безплатно и с отворен код. бъди щастлив, брат."},
+
+    {L"autor: budista. no quiero nada. es gratuito y de código abierto. sé feliz, hermano.",
+     L"yazar: budist. hiçbir şey istemiyorum. ücretsiz ve açık kaynak. mutlu ol, kardeşim.",
+     L"نویسنده: بودایی. چیزی نمی‌خواهم. رایگان و متن‌باز. شاد باش، برادر.",
+     L"autor: buddysta. niczego nie chcę. darmowy i open source. bądź szczęśliwy, bracie.",
+     L"auteur: boeddhist. ik wil niets. freeware en open source. wees gelukkig, broeder.",
+     L"författare: buddhist. jag vill inget. gratis och öppen källkod. var lycklig, broder.",
+     L"autor: budista. ne želim ništa. besplatno i otvorenog koda. budi sretan, brate.",
+     L"autor: budist. ne želim ništa. besplatno i otvorenog koda. budi sretan, brate."},
+
+    {L"ผู้เขียน: พุทธศาสนิกชน ไม่ต้องการสิ่งใด ฟรีและโอเพนซอร์ส มีความสุขนะ",
+     L"tác giả: phật tử. tôi không cần gì cả. miễn phí và mã nguồn mở. hãy hạnh phúc.",
+     L"מחבר: בודהיסט. איני רוצה דבר. חינמי וקוד פתוח. היה שמח, אחי.",
+     L"लेखक: बौद्ध। मुझे कुछ नहीं चाहिए। यह मुफ्त और ओपन सोर्स है। खुश रहो।",
+     L"penulis: penganut Buddha. saya tidak menginginkan apa-apa. gratis dan open source. berbahagialah.",
+     L"autor: budist. nu vreau nimic. gratuit și open source. fii fericit, frate.",
+     L"autorius: budistas. nieko nenoriu. nemokama ir atviro kodo. būk laimingas.",
+     L"autors: budists. neko nevēlos. bezmaksas un atvērtā koda. esi laimīgs."},
+
+    {L"συγγραφέας: βουδιστής. δεν θέλω τίποτα. δωρεάν και ανοιχτού κώδικα. να είσαι ευτυχισμένος.",
+     L"penulis: buddhist. saya tidak mahu apa-apa. percuma dan sumber terbuka. berbahagialah.",
+     L"автор: будист. нічого не хочу. безкоштовно та з відкритим кодом. будь щасливий.",
+     L"forfatter: buddhist. jeg vil intet. gratis og open source. vær glad, broder.",
+     L"tekijä: buddhalainen. en halua mitään. ilmainen ja avoin lähdekoodi. ole onnellinen.",
+     L"forfatter: buddhist. jeg vil ingenting. gratis og åpen kildekode. vær lykkelig.",
+     L"autor: budist. ma ei taha midagi. tasuta ja avatud lähtekoodiga. ole õnnelik.",
+     L"author: Buddhist. I want nothing. free and open source. be happy."},
+
+    {L"mwandishi: mbudha. sitaki chochote. bure na chanzo huria. uwe na furaha.",
+     L"автор: буддист. ештеңе қаламаймын. тегін әрі ашық кодты. бақытты бол.",
+     L"muallif: buddist. hech narsa xohlamayman. bepul va ochiq manbali. baxtli bo‘l.",
+     L"müəllif: buddist. heç nə istəmirəm. pulsuz və açıq mənbə. xoşbəxt ol.",
+     L"ავტორი: ბუდისტი. არაფერი მინდა. უფასო და ღია კოდი. იყავი ბედნიერი.",
+     L"հեղինակ: բուդդիստ։ ոչինչ չեմ ուզում։ անվճար և բաց կոդով։ եղիր երջանիկ։",
+     L"autor: budista. ne želim ništa. besplatno i otvorenog koda. budi srećan.",
+     L"зохиогч: буддист. юу ч хүсэхгүй. үнэгүй, нээлттэй эхтэй. аз жаргалтай бай."},
+
+    {L"రచయిత: బౌద్ధుడు. నాకు ఏమీ కావాలి లేదు. ఉచితం మరియు ఓపెన్ సోర్స్. సంతోషంగా ఉండండి.",
+     L"लेखक: बौद्ध। मला काहीही नको आहे. मोफत व ओपन सोर्स. आनंदी रहा.",
+     L"ஆசிரியர்: புத்தமதத்தவர். எனக்கு எதுவும் வேண்டாம். இலவசம் மற்றும் திறந்த மூலமாகும். மகிழ்ச்சியாக இருங்கள்.",
+     L"مصنف: بدھ مت کا پیروکار۔ مجھے کچھ نہیں چاہیے۔ مفت اور اوپن سورس۔ خوش رہیں۔",
+     L"ಲೇಖಕ: ಬೌದ್ಧ. ನನಗೆ ಏನೂ ಬೇಡ. ಉಚಿತ ಮತ್ತು ಓಪನ್ ಸೋರ್ಸ್. ಸಂತೋಷವಾಗಿರಿ.",
+     L"લેખક: બૌદ્ધ. મને કંઈ જોઈએ નહીં. મફત અને ઓપન સોર્સ. ખુશ રહો.",
+     L"രചയിതാവ്: ബൗദ്ധൻ. എനിക്ക് ഒന്നും വേണ്ട. സൗജന്യവും ഓപ്പൺ സോഴ്‌സും. സന്തോഷത്തോടെ ഇരിക്കുക.",
+     L"ਲੇਖਕ: ਬੌੱਧ। ਮੈਨੂੰ ਕੁਝ ਨਹੀਂ ਚਾਹੀਦਾ। ਮੁਫ਼ਤ ਅਤੇ ਓਪਨ ਸੋਰਸ। ਖੁਸ਼ ਰਹੋ।"}
+};
+const wchar_t* MessageOfCopy[7][8] = {
+    {L"完成了。随意粘贴！", L"तैयार है। जहाँ चाहें पेस्ट करें!", L"Done. Paste it wherever you want!",
+     L"تم. الصقه حيثما تشاء!", L"Pronto. Cole ele onde quiser!", L"সম্পন্ন। যেখানে ইচ্ছা পেস্ট করুন!",
+     L"Kész. Illeszd be bárhová!", L"Hotovo. Vložte kamkoli!"},
+
+    {L"Готово. Вставляйте где угодно!", L"完了。どこにでも貼り付けてください！",
+     L"완료되었습니다. 원하는 곳에 붙이세요!", L"Fertig. Füge es ein, wo du willst!",
+     L"Terminé. Collez-le où vous voulez !", L"Fatto. Incollalo dove vuoi!",
+     L"Hotovo. Vložte kdekoľvek!", L"Готово. Поставете го където искате!"},
+
+    {L"Listo. Pégalo donde quieras!", L"Hazır. İstediğin yere yapıştır!",
+     L"انجام شد. هرجا خواستی بچسبان!", L"Gotowe. Wklej gdzie chcesz!",
+     L"Klaar. Plak het waar je wilt!", L"Klar. Klistra in var du vill!",
+     L"Gotovo. Zalijepi gdje želiš!", L"Gotovo. Zalijepi gdje želiš!"},
+
+    {L"เสร็จแล้ว วางที่ไหนก็ได้!", L"Xong rồi. Dán ở đâu cũng được!",
+     L"מוכן. הדבק איפה שתרצה!", L"तैयार है। जहाँ चाहें चिपकाएँ!",
+     L"Selesai. Tempelkan di mana saja!", L"Gata. Lipește unde vrei!",
+     L"Paruošta. Įklijuok kur nori!", L"Gatavs. Ielīmē kur vēlies!"},
+
+    {L"Έτοιμο. Επικόλλησέ το όπου θέλεις!", L"Selesai. Tampal di mana-mana!",
+     L"Готово. Встав де хочеш!", L"Klar. Indsæt hvor du vil!",
+     L"Valmis. Liitä mihin haluat!", L"Klar. Lim det inn hvor du vil!",
+     L"Valmis. Kleebi kuhu tahad!", L"Tapos na. I-paste kahit saan!"},
+
+    {L"Tayari. Bandika popote!", L"Дайын. Қалаған жерге қой!",
+     L"Tayyor. Istagan joyga joyla!", L"Hazır. İstədiyin yerə yapışdır!",
+     L"მზადაა. ჩასვი სადაც გინდა!", L"Պատրաստ է։ Կպցրու որտեղ ուզես։",
+     L"Gotovo. Nalijepi gdje želiš!", L"Бэлэн. Хаана ч хамаагүй наа!"},
+
+    {L"పూర్తయింది. ఎక్కడైనా అతికించండి!", L"तयार आहे. कुठेही पेस्ट करा!",
+     L"முடிந்தது. எங்கு வேண்டுமானாலும் ஒட்டவும்!",
+     L"تیار ہے۔ جہاں چاہیں پیسٹ کریں!",
+     L"ಪೂರ್ಣವಾಗಿದೆ. ಎಲ್ಲಿಯಾದರೂ ಅಂಟಿಸಿ!",
+     L"તૈયાર છે. જ્યાં ઇચ્છો ત્યાં ચોંટાડો!",
+     L"തയ്യാർ. എവിടെയും പേസ്റ്റ് ചെയ്യാം!",
+     L"ਤਿਆਰ ਹੈ। ਕਿਤੇ ਵੀ ਪੇਸਟ ਕਰੋ!"}
+};
  
 ======================================= 
 ===== ui_constants.cpp 
@@ -816,6 +955,7 @@ const wchar_t* labelVoltar[7][8] = {
 #pragma execution_character_set("utf-8")
 #include "ui_constants.h"
 const wchar_t* const nomesFerramentas[8] = {L"B", L"L", L"TB", L"CB", L"RB", L"CB", L"I", L"T"};
+
 const wchar_t* const tiposDescritivos[8] = {
     L"BUTTON",
     L"LABEL",
@@ -826,7 +966,6 @@ const wchar_t* const tiposDescritivos[8] = {
     L"IMAGE",
     L"TABLE"
 };
-
 const wchar_t* const linguagens[10] = {
     L"C",
     L"C++",
@@ -839,6 +978,126 @@ const wchar_t* const linguagens[10] = {
     L"Delphi",
     L"R"
 };
+const wchar_t* const resolucao[10] = {
+    L"#include <windows.h>\n#include <stdio.h>\nint main(){RECT rc;GetClientRect(GetDesktopWindow(),&rc);int L=rc.right-rc.left;int A=rc.bottom-rc.top;printf(\"%dx%d\",L,A);return 0;}",
+    L"#include <windows.h>\n#include <iostream>\nint main(){RECT rc;GetClientRect(GetDesktopWindow(),&rc);int L=rc.right-rc.left;int A=rc.bottom-rc.top;std::cout<<L<<\"x\"<<A;return 0;}",
+    L"using System;\nclass Program{static void Main(){int L=Console.LargestWindowWidth;int A=Console.LargestWindowHeight;Console.WriteLine(L+\"x\"+A);}}",
+    L"import java.awt.*;\npublic class ScreenResolution{public static void main(String[] args){Dimension screenSize=Toolkit.getDefaultToolkit().getScreenSize();int L=screenSize.width;int A=screenSize.height;System.out.println(L+\"x\"+A);}}",
+    L"<script>var L=window.innerWidth;var A=window.innerHeight;console.log(L+\"x\"+A);</script>",
+    L"import tkinter as tk\nroot=tk.Tk()\nL=root.winfo_screenwidth()\nA=root.winfo_screenheight()\nprint(L,\"x\",A)\nroot.destroy()",
+    L"Imports System.Windows.Forms\nModule Module1\nSub Main()\nDim L As Integer=Screen.PrimaryScreen.Bounds.Width\nDim A As Integer=Screen.PrimaryScreen.Bounds.Height\nConsole.WriteLine(L & \"x\" & A)\nEnd Sub\nEnd Module",
+    L"use std::io;\nfn main(){let L=term_size::dimensions().unwrap().0;let A=term_size::dimensions().unwrap().1;println!(\"{}x{}\",L,A);}",
+    L"program ScreenResolution;\nuses Forms,Dialogs;\nvar L,A:Integer;\nbegin L:=Screen.Width;A:=Screen.Height;ShowMessage(IntToStr(L)+'x'+IntToStr(A));end.",
+    L"L<-Sys.info()[['sysname']]\nA<-Sys.info()[['release']]\nprint(paste(L,'x',A))"
+};
+ 
+======================================= 
+===== ImplementPrevia.cpp 
+======================================= 
+ 
+// eu decidi j� passar a implementa��o b�sica no pedido do chat pra I.A. reduzindo os tokens gastos
+
+const wchar_t* implementacaoBasica[8][10] = {
+    {   // BUTTON
+        L"CreateWindow(L\"BUTTON\", L\"\", WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_BUTTON_C, hInst, NULL);",
+        L"CreateWindow(L\"BUTTON\", L\"\", WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_BUTTON_CPP, hInst, NULL);",
+        L"Button btn = new Button(); btn.Location = new Point(%d,%d); btn.Size = new Size(%d,%d);",
+        L"JButton btn = new JButton(\"\"); btn.setBounds(%d,%d,%d,%d);",
+        L"let btn = document.createElement('button'); btn.style.left = %d+'px'; btn.style.top = %d+'px'; btn.style.width = %d+'px'; btn.style.height = %d+'px';",
+        L"tk.Button(root, text='', width=%d, height=%d).place(x=%d, y=%d);",
+        L"Dim btn As New Button: btn.Left = %d: btn.Top = %d: btn.Width = %d: btn.Height = %d",
+        L"CreateWindowW(L\"BUTTON\", L\"\", WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_BUTTON_RUST, hInst, NULL);",
+        L"Button1 := TButton.Create(Self); Button1.Left := %d; Button1.Top := %d; Button1.Width := %d; Button1.Height := %d;",
+        L"tkinter.Button(text='', width=%d).place(x=%d, y=%d);"
+    },
+    {   // LABEL
+        L"CreateWindow(L\"STATIC\", L\"\", SS_LEFT|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_LABEL_C, hInst, NULL);",
+        L"CreateWindow(L\"STATIC\", L\"\", SS_LEFT|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_LABEL_CPP, hInst, NULL);",
+        L"Label lbl = new Label(); lbl.Location = new Point(%d,%d); lbl.Size = new Size(%d,%d);",
+        L"JLabel lbl = new JLabel(\"\"); lbl.setBounds(%d,%d,%d,%d);",
+        L"let lbl = document.createElement('label'); lbl.style.left = %d+'px'; lbl.style.top = %d+'px'; lbl.style.width = %d+'px'; lbl.style.height = %d+'px';",
+        L"tk.Label(root, text='', width=%d).place(x=%d, y=%d);",
+        L"Dim lbl As New Label: lbl.Left = %d: lbl.Top = %d: lbl.Width = %d: lbl.Height = %d",
+        L"CreateWindowW(L\"STATIC\", L\"\", SS_LEFT|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_LABEL_RUST, hInst, NULL);",
+        L"Label1 := TLabel.Create(Self); Label1.Left := %d; Label1.Top := %d; Label1.Width := %d; Label1.Height := %d;",
+        L"tk.Label(text='').place(x=%d, y=%d);"
+    },
+    {   // TEXTBOX
+        L"CreateWindow(L\"EDIT\", L\"\", WS_BORDER|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_TEXTBOX_C, hInst, NULL);",
+        L"CreateWindow(L\"EDIT\", L\"\", WS_BORDER|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_TEXTBOX_CPP, hInst, NULL);",
+        L"TextBox txt = new TextBox(); txt.Location = new Point(%d,%d); txt.Size = new Size(%d,%d);",
+        L"JTextField txt = new JTextField(); txt.setBounds(%d,%d,%d,%d);",
+        L"let txt = document.createElement('input'); txt.type='text'; txt.style.left=%d+'px'; txt.style.top=%d+'px'; txt.style.width=%d+'px'; txt.style.height=%d+'px';",
+        L"tk.Entry(root, width=%d).place(x=%d, y=%d);",
+        L"Dim txt As New TextBox: txt.Left = %d: txt.Top = %d: txt.Width = %d: txt.Height = %d",
+        L"CreateWindowW(L\"EDIT\", L\"\", WS_BORDER|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_TEXTBOX_RUST, hInst, NULL);",
+        L"Edit1 := TEdit.Create(Self); Edit1.Left := %d; Edit1.Top := %d; Edit1.Width := %d; Edit1.Height := %d;",
+        L"tk.Entry(width=%d).place(x=%d, y=%d);"
+    },
+    {   // CHECKBOX
+        L"CreateWindow(L\"BUTTON\", L\"\", BS_AUTOCHECKBOX|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_CHECKBOX_C, hInst, NULL);",
+        L"CreateWindow(L\"BUTTON\", L\"\", BS_AUTOCHECKBOX|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_CHECKBOX_CPP, hInst, NULL);",
+        L"CheckBox chk = new CheckBox(); chk.Location = new Point(%d,%d); chk.Size = new Size(%d,%d);",
+        L"JCheckBox chk = new JCheckBox(); chk.setBounds(%d,%d,%d,%d);",
+        L"let chk = document.createElement('input'); chk.type='checkbox'; chk.style.left=%d+'px'; chk.style.top=%d+'px';",
+        L"tk.Checkbutton(root, text='').place(x=%d, y=%d);",
+        L"Dim chk As New CheckBox: chk.Left = %d: chk.Top = %d: chk.Width = %d: chk.Height = %d",
+        L"CreateWindowW(L\"BUTTON\", L\"\", BS_AUTOCHECKBOX|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_CHECKBOX_RUST, hInst, NULL);",
+        L"CheckBox1 := TCheckBox.Create(Self); CheckBox1.Left := %d; CheckBox1.Top := %d; CheckBox1.Width := %d; CheckBox1.Height := %d;",
+        L"tk.Checkbutton().place(x=%d, y=%d);"
+    },
+    {   // RADIOBUTTON
+        L"CreateWindow(L\"BUTTON\", L\"\", BS_AUTORADIOBUTTON|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_RADIO_C, hInst, NULL);",
+        L"CreateWindow(L\"BUTTON\", L\"\", BS_AUTORADIOBUTTON|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_RADIO_CPP, hInst, NULL);",
+        L"RadioButton rdo = new RadioButton(); rdo.Location = new Point(%d,%d); rdo.Size = new Size(%d,%d);",
+        L"JRadioButton rdo = new JRadioButton(); rdo.setBounds(%d,%d,%d,%d);",
+        L"let rdo = document.createElement('input'); rdo.type='radio'; rdo.style.left=%d+'px'; rdo.style.top=%d+'px';",
+        L"tk.Radiobutton(root, text='').place(x=%d, y=%d);",
+        L"Dim rdo As New RadioButton: rdo.Left = %d: rdo.Top = %d: rdo.Width = %d: rdo.Height = %d",
+        L"CreateWindowW(L\"BUTTON\", L\"\", BS_AUTORADIOBUTTON|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_RADIO_RUST, hInst, NULL);",
+        L"RadioButton1 := TRadioButton.Create(Self); RadioButton1.Left := %d; RadioButton1.Top := %d; RadioButton1.Width := %d; RadioButton1.Height := %d;",
+        L"tk.Radiobutton().place(x=%d, y=%d);"
+    },
+  {   // COMBOBOX
+    L"CreateWindow(L\"COMBOBOX\", L\"\", CBS_DROPDOWNLIST|WS_VISIBLE|WS_CHILD|WS_VSCROLL, %d,%d,%d,%d, hwnd, ID_COMBO_C, hInst, NULL);",
+    L"CreateWindow(L\"COMBOBOX\", L\"\", CBS_DROPDOWNLIST|WS_VISIBLE|WS_CHILD|WS_VSCROLL, %d,%d,%d,%d, hwnd, ID_COMBO_CPP, hInst, NULL);",
+    L"ComboBox cmb = new ComboBox(); cmb.Location = new Point(%d,%d); cmb.Size = new Size(%d,%d);",
+    L"JComboBox cmb = new JComboBox(); cmb.setBounds(%d,%d,%d,%d);",
+    L"let cmb = document.createElement('select'); cmb.style.left=%d+'px'; cmb.style.top=%d+'px'; cmb.style.width=%d+'px'; cmb.style.height=%d+'px';",
+    L"tk.OptionMenu(root, '').place(x=%d, y=%d);",
+    L"Dim cmb As New ComboBox: cmb.Left=%d: cmb.Top=%d: cmb.Width=%d: cmb.Height=%d",
+    L"CreateWindowW(L\"COMBOBOX\", L\"\", CBS_DROPDOWNLIST|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_COMBO_RUST, hInst, NULL);",
+    L"ComboBox1 := TComboBox.Create(Self); ComboBox1.Left=%d; ComboBox1.Top=%d; ComboBox1.Width=%d; ComboBox1.Height=%d;",
+    L"tk.OptionMenu().place(x=%d, y=%d);"
+},
+{   // IMAGE
+    L"CreateWindow(L\"STATIC\", L\"\", SS_BITMAP|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_IMAGE_C, hInst, NULL);",
+    L"CreateWindow(L\"STATIC\", L\"\", SS_BITMAP|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_IMAGE_CPP, hInst, NULL);",
+    L"PictureBox pic = new PictureBox(); pic.Location = new Point(%d,%d); pic.Size = new Size(%d,%d);",
+    L"JLabel pic = new JLabel(new ImageIcon(\"\")); pic.setBounds(%d,%d,%d,%d);",
+    L"let img = document.createElement('img'); img.style.left=%d+'px'; img.style.top=%d+'px'; img.style.width=%d+'px'; img.style.height=%d+'px';",
+    L"tk.Label(root, image='').place(x=%d, y=%d);",
+    L"Dim pic As New PictureBox: pic.Left=%d: pic.Top=%d: pic.Width=%d: pic.Height=%d",
+    L"CreateWindowW(L\"STATIC\", L\"\", SS_BITMAP|WS_VISIBLE|WS_CHILD, %d,%d,%d,%d, hwnd, ID_IMAGE_RUST, hInst, NULL);",
+    L"Image1 := TImage.Create(Self); Image1.Left=%d; Image1.Top=%d; Image1.Width=%d; Image1.Height=%d;",
+    L"tk.Label(image='').place(x=%d, y=%d);"
+},
+{   // TABLE
+    L"CreateWindow(L\"SYSLISTVIEW32\", L\"\", WS_VISIBLE|WS_CHILD|LVS_REPORT, %d,%d,%d,%d, hwnd, ID_TABLE_C, hInst, NULL);",
+    L"CreateWindow(L\"SYSLISTVIEW32\", L\"\", WS_VISIBLE|WS_CHILD|LVS_REPORT, %d,%d,%d,%d, hwnd, ID_TABLE_CPP, hInst, NULL);",
+    L"DataGridView dgv = new DataGridView(); dgv.Location = new Point(%d,%d); dgv.Size = new Size(%d,%d);",
+    L"JTable table = new JTable(); table.setBounds(%d,%d,%d,%d);",
+    L"let table = document.createElement('table'); table.style.left=%d+'px'; table.style.top=%d+'px'; table.style.width=%d+'px'; table.style.height=%d+'px';",
+    L"tk.Treeview(root).place(x=%d, y=%d);",
+    L"Dim dgv As New DataGridView: dgv.Left=%d: dgv.Top=%d: dgv.Width=%d: dgv.Height=%d",
+    L"CreateWindowW(L\"SYSLISTVIEW32\", L\"\", WS_VISIBLE|WS_CHILD|LVS_REPORT, %d,%d,%d,%d, hwnd, ID_TABLE_RUST, hInst, NULL);",
+    L"StringGrid1 := TStringGrid.Create(Self); StringGrid1.Left=%d; StringGrid1.Top=%d; StringGrid1.Width=%d; StringGrid1.Height=%d;",
+    L"tk.Treeview().place(x=%d, y=%d);"
+}
+};
+
+
+
  
 ======================================= 
 ===== app.h 
@@ -868,18 +1127,85 @@ void DestroyGDIResources();
 ===== globals.h 
 ======================================= 
  
+// note for I.A.
+// These structs DO NOT represent physical areas or spaces.
+// They are linear mapping coefficients used ONLY to convert
+// logical coordinates into normalized screen factors.
+// L and A already represent the real screen size in pixels.
+// CC* structs exist exclusively to describe how percentages are mapped.
+// Todas as coordenadas internas (CCMapTela, CCMapDesign, Entidade) s�o normalizadas entre 0.0f e 1.0f.
+// Apenas na interface (tela 3) e no c�digo copiado para o clipboard os valores s�o convertidos para 0�100%.
 #pragma once
 #include <windows.h>
 #include <vector>
+// coordenadas cartesianas
+struct CCMapTela{ // ponto divide (altura|largura)tela
+    float mapYStart;
+    float mapYEnd;
+    float mapXStart;
+    float mapXEnd;
+};
+struct CCMapDesign{ // CCMapDesign maps percentages of the lower-right 90% of the screen (offset 10% top/left).
+    float upDA;
+    float downDA;
+    float leftDA;
+    float rightDA;
+};
+// note for I.A.
+// Entidade stores ONLY logical percentages
+// relative to the CCDesignArea mapping.
+// It never stores pixels and never knows screen size.
 struct Entidade {
-    float xPerc;
-    float yPerc;
-    float wPerc;
-    float hPerc;
+    float Eup;
+    float Edown;
+    float Eleft;
+    float Eright;
     wchar_t texto[128];
     int tipo;
 };
-    struct AppState {
+// NOTE FOR I.A.
+//
+// ARCHITECTURAL RULES:
+//
+// - Pixels exist ONLY at the final render step.
+//   Any pixel math outside rendering or input conversion is a bug.
+//
+// - This application uses a SINGLE Win32 window.
+// - AppState defines the entire application behavior.
+// - AppState is the single source of truth.
+// - UI and rendering must ONLY react to AppState.
+// - No additional windows, dialogs, or hidden states are allowed.
+//
+// UI FLOW (FIXED, SCREEN-SCOPED):
+//
+// SCREEN 1 (initial):
+// - Title
+// - Language selection buttons
+// - Red exit (X) button
+//
+// SCREEN 2 (language confirmation):
+// - Selected messages[7][8] text
+// - Language radio buttons [10]
+// - Selected infoMensagem[7][8] text
+// - selected Developer[7][8] text
+// - Advance button
+// - Back button
+// - Red exit (X) button
+//
+// SCREEN 3 (main design):
+// - Horizontal and vertical rulers
+// - Tool name buttons [8]
+// - Copy button
+// - Red exit (X) button
+//
+// FLOW RULES:
+//
+// - Only ONE screen is active at any time.
+// - Screens are mutually exclusive (no overlap).
+// - No reordering, merging, or dynamic creation of screens or UI elements.
+
+
+struct AppState {
     bool idiomaSelecionado = false;
     bool telaRegua = false;
     int linguagemSelecionada = 1;
@@ -931,6 +1257,7 @@ inline GDIState gdi;
 inline AppState app;
 inline RenderState render;
 inline LayoutState layout;
+
  
 ======================================= 
 ===== idiomas.h 
@@ -943,6 +1270,8 @@ extern const wchar_t* labelContinuar[7][8];
 extern const wchar_t* labelVoltar[7][8];
 extern const wchar_t* infoMensagem[7][8];
 extern const wchar_t* mensagens[7][8];
+extern const wchar_t* Developer[7][8];
+extern const wchar_t* MessageOfCopy[7][8];
  
 ======================================= 
 ===== layout.h 
@@ -959,6 +1288,32 @@ extern RECT copiarRect, reguaXRect, reguaYRect;
 extern RECT exitRect, voltarRect, avancarRect;
 extern RECT ferramentasRects[8];
 extern RECT codigoFonteRect;
+ 
+======================================= 
+===== coords.h 
+======================================= 
+ 
+#pragma once
+#include <windows.h>
+#include "globals.h"
+
+// Mapping for the full screen (usually 0..1)
+CCMapTela GetCCMapTela();
+
+// Mapping for the design area (e.g. lower-right 90%, offset by margin)
+CCMapDesign GetCCMapDesign(float margemPerc);
+
+// Input conversion (pixels -> logical design percentages 0..100)
+float PixelToDesignX(int px, const CCMapDesign& da, int screenW);
+float PixelToDesignY(int py, const CCMapDesign& da, int screenH);
+
+// Render conversion (logical design -> pixel rect)
+RECT EntidadeToRect(
+    const Entidade& e,
+    const CCMapDesign& da,
+    int screenW,
+    int screenH
+);
  
 ======================================= 
 ===== paint.h 
