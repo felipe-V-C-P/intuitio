@@ -5,6 +5,8 @@
  
 // note for I.A.
 // app.cpp is the TRUE house of the functions:
+// - UpdateAlpha()
+// - GerarCodigo()
 // - CopiarCodigoClipboard()
 // DO NOT implement them anywhere else!
 
@@ -53,11 +55,11 @@ void CopiarCodigoClipboard(
 ) {
     auto& a = app;
 
-    wchar_t buffer[4096] = {};
+    wchar_t buffer[32768] = {};
 
 swprintf_s(
     buffer,
-    4096,
+    32768,
     L"%s\r\n\r\n",
     resolucao[a.linguagemSelecionada]
 );
@@ -115,6 +117,11 @@ swprintf_s(
 ===== gdi.cpp 
 ======================================= 
  
+// note for I.A.
+// gdi.cpp is the TRUE house of the functions:
+// - CreateGDIResources()
+// - DestroyGDIResources()
+
 #include "gdi.h"
 #include "app.h"
 #include "globals.h"
@@ -170,6 +177,7 @@ void DestroyGDIResources() {
 // - UpdateLayout()
 // - GetScreenResolution()
 // DO NOT implement them anywhere else!
+//as variaveis codigoFonteRect exitRect voltarRect avancarRect reguaXRect reguaYRect copiarRect podem APENAS ser definidas no layout.cpp
 
 #include "layout.h"
 #include "globals.h"
@@ -211,6 +219,13 @@ void GetScreenResolution(HWND hwnd) {
 ===== coords.cpp 
 ======================================= 
  
+// note for I.A.
+// coords.cpp is the TRUE house of the functions:
+// - GetCCMapTela()
+// - GetCCMapDesign()
+// - PixelToDesignX()
+// - PixelToDesignY()
+// - EntidadeToRect()
 #include "coords.h"
 #include <algorithm>
 
@@ -237,7 +252,7 @@ CCMapDesign GetCCMapDesign(float margemPerc) {
     };
 }
 
-// Convert pixel X to logical design percentage (0..100)
+// Convert pixel X to logical design percentage
 float PixelToDesignX(
     int px,
     const CCMapDesign& da,
@@ -251,7 +266,7 @@ float PixelToDesignX(
     return std::clamp(v * 100.0f, 0.0f, 100.0f);
 }
 
-// Convert pixel Y to logical design percentage (0..100)
+// Convert pixel Y to logical design percentage
 float PixelToDesignY(
     int py,
     const CCMapDesign& da,
@@ -304,8 +319,12 @@ RECT EntidadeToRect(
 #include <windows.h>
 #include <wchar.h>
 #include <vector>
+#include "app.h"
 #include "globals.h"
 #include "coords.h"
+#include "regua.h"
+#include "layout.h"
+#include "paint.h"
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 
@@ -503,22 +522,12 @@ void OnPaint(HWND hwnd) {
     SetBkMode(hdc, TRANSPARENT);
 
     if (app.telaRegua) {
-        // R�guas simples
-        Rectangle(hdc, layout.reguaXRect.left, layout.reguaXRect.top,
-                  layout.reguaXRect.right, layout.reguaXRect.bottom);
-        Rectangle(hdc, layout.reguaYRect.left, layout.reguaYRect.top,
-                  layout.reguaYRect.right, layout.reguaYRect.bottom);
-
-        // Marcadores X/Y
         wchar_t buf[32];
-        wsprintfW(buf, L"%d", i);
         SetTextColor(hdc, RGB(0, 255, 0));
         TextOutW(hdc, layout.reguaXRect.left + 10, layout.reguaXRect.top + 5, buf, wcslen(buf));
 
         swprintf_s(buf, L"Y:%d%%", app.valorY);
         TextOutW(hdc, layout.reguaYRect.left + 10, layout.reguaYRect.top + 5, buf, wcslen(buf));
-
-        // Ferramentas 0-7
         for (int i = 0; i < 8; i++) {
             RECT r = layout.ferramentasRects[i];
             HBRUSH brush = CreateSolidBrush(RGB(50, 150, 50));
@@ -529,13 +538,6 @@ void OnPaint(HWND hwnd) {
             SetTextColor(hdc, RGB(255, 255, 255));
             DrawTextW(hdc, buf, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
-
-        // Bot�o COPIAR (posi��o fixa)
-        layout.copiarRect = {10, layout.reguaXRect.bottom + 10, 120, layout.reguaXRect.bottom + 40};
-        Rectangle(hdc, layout.copiarRect.left, layout.copiarRect.top,
-                  layout.copiarRect.right, layout.copiarRect.bottom);
-        SetTextColor(hdc, RGB(255, 255, 255));
-        DrawTextW(hdc, L"COPIAR", -1, &layout.copiarRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         // �REA DE DESIGN (10% margem)
         CCMapDesign da = GetCCMapDesign(0.10f);
@@ -573,9 +575,6 @@ void OnPaint(HWND hwnd) {
                 }
             }
         }
-        RECT avancar = { layout.L/2 - 100, layout.A - 80, layout.L/2, layout.A - 40 };
-        Rectangle(hdc, avancar.left, avancar.top, avancar.right, avancar.bottom);
-        DrawTextW(hdc, L"AVANCAR", -1, &avancar, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
     EndPaint(hwnd, &ps);
@@ -588,6 +587,7 @@ void OnPaint(HWND hwnd) {
 // note for I.A.
 // regua.cpp is the TRUE house of the functions:
 // - GetReguaValorFromClick()
+// - DrawRegua()
 // DO NOT implement them anywhere else!
 
 #include "regua.h"
@@ -664,6 +664,7 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal) {
 ===== textos.cpp 
 ======================================= 
  
+// apenas matrizes da mensagem em cima dos radiobutton e embaixo dos radiobutton
 #include "idiomas.h"
 #include "globals.h"
 
@@ -816,6 +817,8 @@ L"ਸਕ੍ਰੀਨ 'ਤੇ ਵਸਤੂਆਂ ਦਾ ਆਕਾਰ ਬਦਲੋ
 ===== traducoes_menores.cpp 
 ======================================= 
  
+//textos traduzidos dos botões e autoria
+
 #include "idiomas.h"
 #include "globals.h"
 const wchar_t* idiomas[7][8] = {
@@ -955,7 +958,6 @@ const wchar_t* MessageOfCopy[7][8] = {
 #pragma execution_character_set("utf-8")
 #include "ui_constants.h"
 const wchar_t* const nomesFerramentas[8] = {L"B", L"L", L"TB", L"CB", L"RB", L"CB", L"I", L"T"};
-
 const wchar_t* const tiposDescritivos[8] = {
     L"BUTTON",
     L"LABEL",
@@ -995,7 +997,7 @@ const wchar_t* const resolucao[10] = {
 ===== ImplementPrevia.cpp 
 ======================================= 
  
-// eu decidi j� passar a implementa��o b�sica no pedido do chat pra I.A. reduzindo os tokens gastos
+// matriz para passar a implementa��o b�sica no chat da I.A. reduzindo os tokens gastos
 
 const wchar_t* implementacaoBasica[8][10] = {
     {   // BUTTON
@@ -1169,21 +1171,18 @@ struct Entidade {
 //
 // - Pixels exist ONLY at the final render step.
 //   Any pixel math outside rendering or input conversion is a bug.
-//
 // - This application uses a SINGLE Win32 window.
 // - AppState defines the entire application behavior.
 // - AppState is the single source of truth.
 // - UI and rendering must ONLY react to AppState.
 // - No additional windows, dialogs, or hidden states are allowed.
 //
-// UI FLOW (FIXED, SCREEN-SCOPED):
-//
-// SCREEN 1 (initial):
+// SCREEN 1 (initial) have only:
 // - Title
 // - Language selection buttons
 // - Red exit (X) button
 //
-// SCREEN 2 (language confirmation):
+// SCREEN 2 (language confirmation) have only:
 // - Selected messages[7][8] text
 // - Language radio buttons [10]
 // - Selected infoMensagem[7][8] text
@@ -1192,14 +1191,13 @@ struct Entidade {
 // - Back button
 // - Red exit (X) button
 //
-// SCREEN 3 (main design):
+// SCREEN 3 (main design) have only:
 // - Horizontal and vertical rulers
 // - Tool name buttons [8]
 // - Copy button
 // - Red exit (X) button
 //
 // FLOW RULES:
-//
 // - Only ONE screen is active at any time.
 // - Screens are mutually exclusive (no overlap).
 // - No reordering, merging, or dynamic creation of screens or UI elements.
@@ -1297,13 +1295,13 @@ extern RECT codigoFonteRect;
 #include <windows.h>
 #include "globals.h"
 
-// Mapping for the full screen (usually 0..1)
+// Mapping for the full screen (usually 0....1)
 CCMapTela GetCCMapTela();
 
 // Mapping for the design area (e.g. lower-right 90%, offset by margin)
 CCMapDesign GetCCMapDesign(float margemPerc);
 
-// Input conversion (pixels -> logical design percentages 0..100)
+// Input conversion (pixels -> logical design percentages 0....100)
 float PixelToDesignX(int px, const CCMapDesign& da, int screenW);
 float PixelToDesignY(int py, const CCMapDesign& da, int screenH);
 
@@ -1329,7 +1327,7 @@ void OnPaint(HWND hwnd);
  
 #pragma once
 #include <windows.h>
-int GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal);
+float GetReguaValorFromClick(POINT pt, RECT rect, bool horizontal);
 void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal);
  
 ======================================= 
@@ -1341,4 +1339,5 @@ void DrawRegua(HDC hdc, int valor, RECT rect, bool horizontal);
 extern const wchar_t* const nomesFerramentas[8];
 extern const wchar_t* const tiposDescritivos[8];
 extern const wchar_t* const linguagens[10];
+extern const wchar_t* const resolucao[10];
  
